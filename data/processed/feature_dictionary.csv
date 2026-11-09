@@ -1,0 +1,55 @@
+feature,family,description
+h_hist_0,warna,Proporsi piksel pada bin histogram H
+h_hist_1,warna,Proporsi piksel pada bin histogram H
+h_hist_2,warna,Proporsi piksel pada bin histogram H
+h_hist_3,warna,Proporsi piksel pada bin histogram H
+h_hist_4,warna,Proporsi piksel pada bin histogram H
+h_hist_5,warna,Proporsi piksel pada bin histogram H
+h_hist_6,warna,Proporsi piksel pada bin histogram H
+h_hist_7,warna,Proporsi piksel pada bin histogram H
+h_hist_8,warna,Proporsi piksel pada bin histogram H
+h_hist_9,warna,Proporsi piksel pada bin histogram H
+h_hist_10,warna,Proporsi piksel pada bin histogram H
+h_hist_11,warna,Proporsi piksel pada bin histogram H
+s_hist_0,warna,Proporsi piksel pada bin histogram S
+s_hist_1,warna,Proporsi piksel pada bin histogram S
+s_hist_2,warna,Proporsi piksel pada bin histogram S
+s_hist_3,warna,Proporsi piksel pada bin histogram S
+s_hist_4,warna,Proporsi piksel pada bin histogram S
+s_hist_5,warna,Proporsi piksel pada bin histogram S
+v_hist_0,warna,Proporsi piksel pada bin histogram V
+v_hist_1,warna,Proporsi piksel pada bin histogram V
+v_hist_2,warna,Proporsi piksel pada bin histogram V
+v_hist_3,warna,Proporsi piksel pada bin histogram V
+v_hist_4,warna,Proporsi piksel pada bin histogram V
+v_hist_5,warna,Proporsi piksel pada bin histogram V
+hue_cos_mean,warna,Statistik ruang warna HSV (hue memakai rata-rata sirkular cos/sin)
+hue_sin_mean,warna,Statistik ruang warna HSV (hue memakai rata-rata sirkular cos/sin)
+s_mean,warna,Statistik ruang warna HSV (hue memakai rata-rata sirkular cos/sin)
+v_mean,warna,Statistik ruang warna HSV (hue memakai rata-rata sirkular cos/sin)
+s_std,warna,Statistik ruang warna HSV (hue memakai rata-rata sirkular cos/sin)
+v_std,warna,Statistik ruang warna HSV (hue memakai rata-rata sirkular cos/sin)
+gray_mean,intensitas,Rata-rata/simpangan baku grayscale (0-1)
+gray_std,intensitas,Rata-rata/simpangan baku grayscale (0-1)
+edge_density_low,tepi,Proporsi piksel dengan magnitudo gradien di atas ambang tetap
+edge_density_high,tepi,Proporsi piksel dengan magnitudo gradien di atas ambang tetap
+grad_mean,tekstur,Statistik magnitudo gradien
+grad_std,tekstur,Statistik magnitudo gradien
+grad_ori_0,tekstur,Histogram orientasi gradien (berbobot magnitudo)
+grad_ori_1,tekstur,Histogram orientasi gradien (berbobot magnitudo)
+grad_ori_2,tekstur,Histogram orientasi gradien (berbobot magnitudo)
+grad_ori_3,tekstur,Histogram orientasi gradien (berbobot magnitudo)
+grad_ori_4,tekstur,Histogram orientasi gradien (berbobot magnitudo)
+grad_ori_5,tekstur,Histogram orientasi gradien (berbobot magnitudo)
+grad_ori_6,tekstur,Histogram orientasi gradien (berbobot magnitudo)
+grad_ori_7,tekstur,Histogram orientasi gradien (berbobot magnitudo)
+lbp_0,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_1,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_2,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_3,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_4,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_5,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_6,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_7,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_8,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"
+lbp_9,tekstur,"Histogram Local Binary Pattern (uniform, P=8, R=1)"

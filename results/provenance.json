@@ -1,0 +1,54 @@
+{
+  "dataset": {
+    "name": "Urban Community Issues Object Detection Dataset",
+    "author": "Paudel, R.",
+    "version": "v1",
+    "published": "2026-03-05",
+    "doi": "10.5281/zenodo.18871460",
+    "url": "https://zenodo.org/records/18871460",
+    "license_note": "Dataset turunan dari sumber publik lain: periksa lisensi sumber sebelum redistribusi."
+  },
+  "downloaded_or_checked_at": "2026-11-09T15:20:20",
+  "archive": [],
+  "libraries": {
+    "numpy": "2.5.1",
+    "pandas": "3.0.3",
+    "scikit-learn": "1.9.0",
+    "scikit-image": "0.26.0",
+    "pillow": "12.3.0"
+  },
+  "python": "3.14.6",
+  "config": {
+    "image_exts": [
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".bmp",
+      ".webp"
+    ],
+    "min_side_px": 24,
+    "min_area_px": 1024,
+    "resize": 128,
+    "hsv_bins": [
+      12,
+      6,
+      6
+    ],
+    "ori_bins": 8,
+    "lbp_points": 8,
+    "lbp_radius": 1,
+    "edge_thresholds": [
+      0.05,
+      0.15
+    ],
+    "scaler": "StandardScaler",
+    "k_candidates": [
+      3,
+      5,
+      7,
+      10
+    ],
+    "cluster_representation": "both"
+  },
+  "seed": 42
+}

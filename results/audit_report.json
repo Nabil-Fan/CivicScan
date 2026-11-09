@@ -1,0 +1,121 @@
+{
+  "created": "2026-11-09T15:19:33",
+  "class_names": [
+    "animal",
+    "traffic light",
+    "waste container",
+    "pothole",
+    "cracks",
+    "open manhole",
+    "good road"
+  ],
+  "class_names_source": "fallback-dokumen (verifikasi manual!)",
+  "images_total": 2518,
+  "label_files_total": 2518,
+  "config": {
+    "min_side_px": 24,
+    "min_area_px": 1024,
+    "resize": 128
+  },
+  "labels_without_image": 0,
+  "images_without_label": 0,
+  "images_unreadable": 0,
+  "images_paired": 2518,
+  "empty_label_files": 100,
+  "duplicate_images_dropped": 27,
+  "label_lines_parsed": 5573,
+  "label_lines_malformed": 0,
+  "unknown_class_ids": 0,
+  "boxes_out_of_bounds_clipped": 0,
+  "boxes_zero_size": 0,
+  "boxes_too_small": 1510,
+  "boxes_duplicate": 0,
+  "polygon_labels_converted": 0,
+  "boxes_kept": 4024,
+  "exclusion_reasons": {
+    "too_small": 1510,
+    "duplicate_image": 39
+  },
+  "boxes_per_class": {
+    "animal": 1113,
+    "traffic light": 2522,
+    "waste container": 1112,
+    "pothole": 478,
+    "cracks": 194,
+    "open manhole": 154,
+    "good road": 0
+  },
+  "kept_boxes_per_class": {
+    "animal": 1051,
+    "traffic light": 1135,
+    "waste container": 1088,
+    "pothole": 422,
+    "cracks": 190,
+    "open manhole": 138,
+    "good road": 0
+  },
+  "images_per_class": {
+    "animal": 600,
+    "traffic light": 600,
+    "waste container": 600,
+    "pothole": 300,
+    "cracks": 166,
+    "open manhole": 152,
+    "good road": 0
+  },
+  "kept_images_per_class": {
+    "animal": 594,
+    "traffic light": 513,
+    "waste container": 600,
+    "pothole": 289,
+    "cracks": 162,
+    "open manhole": 136,
+    "good road": 0
+  },
+  "kept_groups_per_class": {
+    "animal": 594,
+    "traffic light": 513,
+    "waste container": 600,
+    "pothole": 289,
+    "cracks": 162,
+    "open manhole": 136,
+    "good road": 0
+  },
+  "zenodo_declared_images": {
+    "animal": 600,
+    "traffic light": 600,
+    "waste container": 600,
+    "pothole": 300,
+    "cracks": 166,
+    "open manhole": 152,
+    "good road": 100
+  },
+  "crops_total": 4024,
+  "crops_per_class": {
+    "animal": 1051,
+    "traffic light": 1135,
+    "waste container": 1088,
+    "pothole": 422,
+    "cracks": 190,
+    "open manhole": 138,
+    "good road": 0
+  },
+  "source_images_per_class": {
+    "animal": 594,
+    "traffic light": 513,
+    "waste container": 600,
+    "pothole": 289,
+    "cracks": 162,
+    "open manhole": 136,
+    "good road": 0
+  },
+  "source_groups_per_class": {
+    "animal": 594,
+    "traffic light": 513,
+    "waste container": 600,
+    "pothole": 289,
+    "cracks": 162,
+    "open manhole": 136,
+    "good road": 0
+  }
+}
