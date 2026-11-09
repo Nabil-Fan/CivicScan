@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}CivicScan — klasifikasi crop objek perkotaan{% endblock %}
+{% block content %}
+
+<main>
+<section class="hero">
+  <svg class="blob blob-gold" aria-hidden="true"><use href="#blob"/></svg>
+  <svg class="blob blob-mint" aria-hidden="true"><use href="#blob2"/></svg>
+  <svg class="sprig sprig-hero" aria-hidden="true"><use href="#sprig"/></svg>
+
+  <div class="container hero-grid">
+    <div class="hero-copy">
+      <h1 class="display">Kenali masalah kota dari satu crop</h1>
+      <p class="script">tujuh kategori, satu unggahan</p>
+      <p class="lead">Unggah potongan gambar satu objek: hewan, lampu lalu lintas, tempat sampah, lubang jalan,
+        retakan, manhole terbuka, atau jalan yang baik. Model KNN dan Decision Tree membacanya lewat warna,
+        intensitas, tepi, dan tekstur.</p>
+      <div class="btn-row">
+        <a class="btn btn-fill" href="#unggah">Coba unggah crop</a>
+        <a class="btn btn-outline" href="/results">Lihat hasil eksperimen
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+      </div>
+    </div>
+
+    <div class="card upload-card" id="unggah">
+      <h2 class="h-sm">Unggah crop objek</h2>
+      <div id="model-banner" class="notice" hidden></div>
+      <form id="predict-form" novalidate>
+        <label class="dropzone" id="dropzone" for="file">
+          <input type="file" id="file" name="image" accept="image/jpeg,image/png,image/webp,image/bmp">
+          <img id="preview" alt="Pratinjau crop yang dipilih" hidden>
+          <span class="dz-text" id="dz-text">Seret gambar ke sini atau klik untuk memilih berkas.<br>
+            <small>JPG, PNG, WEBP, BMP · maksimum 8 MB</small></span>
+        </label>
+        <fieldset class="scenarios">
+          <legend class="label">Model</legend>
+          <div id="scenario-pills" class="pill-row" role="radiogroup" aria-label="Pilih model"></div>
+        </fieldset>
+        <button class="btn btn-fill btn-block" type="submit" id="submit" disabled>Analisis crop</button>
+        <p class="hint">Masukkan crop objek, bukan foto jalan penuh. Sistem belum mencari lokasi objek sendiri.</p>
+        <p class="error" id="form-error" role="alert" hidden></p>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="hasil" hidden>
+  <div class="container">
+    <div class="card result-card">
+      <div class="result-media"><img id="result-img" alt="Crop yang dianalisis"></div>
+      <div class="result-main">
+        <p class="label">Prediksi awal</p>
+        <h2 class="result-label" id="result-label"></h2>
+        <p class="result-meta" id="result-meta"></p>
+        <ul class="warn-list" id="result-warnings"></ul>
+      </div>
+      <div class="result-bars">
+        <p class="label">Skor tiap kelas</p>
+        <div id="result-bars"></div>
+        <p class="hint" id="result-note"></p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="alur">
+  <svg class="wave wave-top" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 70 C200 10 420 120 720 64 C1000 10 1220 110 1440 50 L1440 0 L0 0Z"/></svg>
+  <div class="container">
+    <h2 class="h-md on-band">Dari gambar ke prediksi</h2>
+    <p class="script on-band">lima tahap, tanpa jalan pintas</p>
+    <ol class="steps">
+      <li class="card"><span class="step-n">1</span><h3>Audit dan crop</h3>
+        <p>Setiap bounding box YOLO dipotong menjadi satu observasi. Crop kecil, duplikat, dan label rusak dicatat.</p></li>
+      <li class="card"><span class="step-n">2</span><h3>Fitur visual</h3>
+        <p>54 angka per crop: histogram HSV, intensitas, kepadatan tepi, dan tekstur LBP. Demo memakai fungsi yang sama.</p></li>
+      <li class="card"><span class="step-n">3</span><h3>Split per gambar</h3>
+        <p>Semua crop dari satu foto berada di fold yang sama agar skor tidak terlalu optimistis.</p></li>
+      <li class="card"><span class="step-n">4</span><h3>K-Means di data latih</h3>
+        <p>Scaler, K-Means, dan classifier hanya belajar dari training fold. Cluster menjadi fitur tambahan.</p></li>
+      <li class="card"><span class="step-n">5</span><h3>Evaluasi</h3>
+        <p>Macro-F1 dan balanced accuracy dibandingkan pada fold yang identik, hasil negatif tetap dilaporkan.</p></li>
+    </ol>
+  </div>
+  <svg class="wave wave-bottom" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 50 C260 120 520 0 800 60 C1060 112 1260 20 1440 70 L1440 120 L0 120Z"/></svg>
+</section>
+
+<section class="section" id="batas">
+  <svg class="sprig sprig-left" aria-hidden="true"><use href="#sprig"/></svg>
+  <div class="container">
+    <h2 class="h-md">Batas klaim</h2>
+    <div class="limits">
+      <div><h3>Klasifikasi, bukan deteksi</h3>
+        <p>Pengguna memberi crop yang sudah dipilih. Aplikasi tidak menemukan lokasi objek di foto penuh.</p></div>
+      <div><h3>Bukan penilaian bahaya</h3>
+        <p>Hasil tidak menentukan urgensi atau tingkat bahaya, tidak menggantikan inspeksi petugas, dan tidak mengirim laporan ke instansi.</p></div>
+      <div><h3>Data publik gabungan</h3>
+        <p>Dataset dikompilasi dari sumber publik dan belum tentu mewakili kondisi jalan di Indonesia. Uji pada foto lokal diperlukan sebelum penggunaan nyata.</p></div>
+      <div><h3>Fitur sederhana</h3>
+        <p>Warna dan tekstur dasar dapat keliru pada pencahayaan atau latar yang berbeda. Lihat halaman hasil untuk kelas yang sering tertukar.</p></div>
+    </div>
+  </div>
+</section>
+</main>
+{% endblock %}

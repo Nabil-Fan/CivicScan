@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}CivicScan{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Caveat:wght@500&family=Inter:wght@400;500;600&family=Jost:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body data-page="{{ page }}">
+
+<!-- Ilustrasi botani (garis saja, tanpa isian) & blob organik (isian solid) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="sprig" viewBox="0 0 160 300">
+      <g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M80 296 C74 220 92 150 78 12"/>
+        <path d="M78 250 C48 244 28 222 22 194 C52 196 72 218 78 250Z"/><path d="M78 250 C60 232 44 214 30 200"/>
+        <path d="M80 220 C112 214 132 192 138 164 C108 166 88 188 80 220Z"/><path d="M80 220 C100 202 118 184 132 170"/>
+        <path d="M78 176 C48 168 30 146 26 118 C56 122 74 142 78 176Z"/><path d="M78 176 C58 156 44 140 32 124"/>
+        <path d="M80 140 C110 130 126 108 130 82 C102 88 86 108 80 140Z"/><path d="M80 140 C98 122 112 106 124 88"/>
+        <path d="M78 100 C56 92 44 74 42 52 C64 56 76 74 78 100Z"/><path d="M78 100 C64 84 54 70 46 58"/>
+        <path d="M78 64 C96 56 106 40 108 22 C90 26 80 42 78 64Z"/>
+      </g>
+    </symbol>
+    <symbol id="blob" viewBox="-100 -100 200 200">
+      <path d="M44.7,-61.4C57.8,-52.6,68.3,-39.2,72.6,-24.1C76.9,-9,75,7.9,68.8,22.6C62.6,37.3,52.1,49.7,39,58.5C25.9,67.2,10.1,72.3,-6.6,73.1C-23.3,73.9,-40.9,70.4,-53.4,60.1C-65.9,49.8,-73.3,32.7,-75.4,15.2C-77.5,-2.3,-74.3,-20.2,-65.1,-33.5C-55.9,-46.8,-40.7,-55.5,-26.1,-63.8C-11.5,-72.1,2.5,-80,17.2,-77.2C31.9,-74.4,31.6,-70.2,44.7,-61.4Z" fill="currentColor"/>
+    </symbol>
+    <symbol id="blob2" viewBox="-100 -100 200 200">
+      <path d="M38.5,-52.6C50.1,-44.6,60,-33.7,65.9,-20.2C71.8,-6.6,73.7,9.6,68.1,22.7C62.5,35.8,49.4,45.8,35.6,54.4C21.8,63,7.3,70.2,-8.6,71.4C-24.5,72.6,-41.9,67.8,-54.6,57.1C-67.3,46.4,-75.3,29.8,-76.6,12.9C-77.9,-4,-72.5,-21.2,-62.7,-34.3C-52.9,-47.4,-38.7,-56.4,-24.5,-63.1C-10.3,-69.8,3.9,-74.2,16.5,-71.1C29.1,-68,26.9,-60.6,38.5,-52.6Z" fill="currentColor"/>
+    </symbol>
+  </defs>
+</svg>
+
+<header class="nav">
+  <div class="container nav-in">
+    <a class="brand" href="/" aria-label="CivicScan beranda">CivicScan</a>
+    <nav class="nav-links" aria-label="Navigasi utama">
+      <a href="/" {% if page == 'demo' %}aria-current="page"{% endif %}>Coba model</a>
+      <a href="/results" {% if page == 'results' %}aria-current="page"{% endif %}>Hasil eksperimen</a>
+      <a href="/#batas">Batas klaim</a>
+    </nav>
+    <a class="btn btn-fill btn-sm" href="/#unggah">Unggah crop</a>
+  </div>
+</header>
+
+{% block content %}{% endblock %}
+
+<footer class="footer">
+  <svg class="sprig sprig-footer" aria-hidden="true"><use href="#sprig"/></svg>
+  <div class="container footer-in">
+    <div>
+      <p class="brand brand-light">CivicScan</p>
+      <p class="footer-text">Proyek Machine Learning semester 5. K-Means sebagai fitur tambahan untuk KNN dan Decision Tree
+        pada klasifikasi crop objek perkotaan.</p>
+    </div>
+    <div class="footer-text">
+      <p>Dataset: Paudel, R. (2026). Urban Community Issues Object Detection Dataset. Zenodo, v1,
+        DOI 10.5281/zenodo.18871460.</p>
+      <p>Hasil prediksi bukan penilaian resmi tingkat bahaya dan bukan pengganti inspeksi petugas.</p>
+    </div>
+  </div>
+</footer>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

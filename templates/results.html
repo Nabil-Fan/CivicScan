@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Hasil eksperimen — CivicScan{% endblock %}
+{% block content %}
+
+<main>
+<section class="hero hero-slim">
+  <svg class="blob blob-gold" aria-hidden="true"><use href="#blob"/></svg>
+  <svg class="sprig sprig-hero" aria-hidden="true"><use href="#sprig"/></svg>
+  <div class="container">
+    <h1 class="display">Hasil eksperimen</h1>
+    <p class="script">setiap angka berasal dari eksperimen nyata</p>
+  </div>
+</section>
+
+<div class="container" id="dash-empty" hidden>
+  <div class="card empty">
+    <h2 class="h-sm">Belum ada hasil</h2>
+    <p>Jalankan pipeline dari terminal, lalu muat ulang halaman ini:</p>
+    <pre>python pipeline.py all</pre>
+  </div>
+</div>
+
+<div id="dash" hidden>
+  <section class="section">
+    <div class="container">
+      <div class="stats" id="stats"></div>
+    </div>
+  </section>
+
+  <section class="section" id="skenario">
+    <div class="container">
+      <h2 class="h-md">Perbandingan skenario</h2>
+      <p class="lead narrow">Rata-rata dan simpangan baku antar fold luar. Semua skenario memakai fold, crop,
+        dan fitur dasar yang sama; perbedaan A/B dan C/D hanya informasi cluster.</p>
+      <div class="grid-2">
+        <div class="card"><h3 class="h-xs">Macro-F1 per skenario</h3><div id="chart-f1"></div></div>
+        <div class="card scroll-x"><h3 class="h-xs">Tabel metrik</h3><table class="tbl" id="tbl-scen"></table></div>
+      </div>
+      <div class="grid-2 mt">
+        <div class="card scroll-x"><h3 class="h-xs">Macro-F1 per fold</h3><table class="tbl" id="tbl-folds"></table></div>
+        <div class="card"><h3 class="h-xs">Pengaruh informasi cluster</h3><div id="compare"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="perkelas">
+    <div class="container">
+      <h2 class="h-md">Performa per kelas</h2>
+      <div class="pill-row" id="pills-class" role="radiogroup" aria-label="Skenario"></div>
+      <div class="grid-2 mt">
+        <div class="card scroll-x"><table class="tbl" id="tbl-class"></table></div>
+        <div class="card"><h3 class="h-xs">Confusion matrix (gabungan out-of-fold)</h3>
+          <p class="hint">Baris = kelas sebenarnya, kolom = prediksi. Warna = proporsi per baris, angka = jumlah crop.</p>
+          <div class="scroll-x" id="confusion"></div></div>
+      </div>
+      <div class="grid-2 mt">
+        <div class="card"><h3 class="h-xs">Pasangan kelas yang paling sering tertukar</h3><ol class="plain" id="confusions"></ol></div>
+        <div class="card"><h3 class="h-xs">Contoh salah klasifikasi (model terbaik)</h3><div id="errors"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="klaster">
+    <div class="container">
+      <h2 class="h-md">Isi cluster K-Means</h2>
+      <p class="lead narrow" id="cluster-note"></p>
+      <div class="grid-2">
+        <div class="card"><h3 class="h-xs">Proyeksi PCA 2 dimensi (visualisasi saja)</h3>
+          <div class="pill-row" id="pills-pca" role="radiogroup" aria-label="Warna titik"></div><div id="pca"></div></div>
+        <div class="card"><h3 class="h-xs">Elbow dan silhouette</h3><div id="elbow"></div></div>
+      </div>
+      <div class="card scroll-x mt"><h3 class="h-xs">Komposisi kelas tiap cluster</h3><div id="contingency"></div></div>
+      <div class="cluster-grid mt" id="cluster-imgs"></div>
+    </div>
+  </section>
+
+  <section class="band" id="data">
+    <svg class="wave wave-top" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 70 C200 10 420 120 720 64 C1000 10 1220 110 1440 50 L1440 0 L0 0Z"/></svg>
+    <div class="container">
+      <h2 class="h-md on-band">Audit dan distribusi data</h2>
+      <div class="grid-2">
+        <div class="card"><h3 class="h-xs">Crop dan gambar sumber per kelas</h3><div id="dist"></div></div>
+        <div class="card scroll-x"><h3 class="h-xs">Catatan audit</h3><table class="tbl" id="tbl-audit"></table></div>
+      </div>
+      <div class="card mt"><h3 class="h-xs">Protokol dan konfigurasi</h3><dl class="defs" id="protocol"></dl></div>
+    </div>
+    <svg class="wave wave-bottom" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 50 C260 120 520 0 800 60 C1060 112 1260 20 1440 70 L1440 120 L0 120Z"/></svg>
+  </section>
+</div>
+</main>
+{% endblock %}
