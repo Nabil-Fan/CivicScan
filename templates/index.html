@@ -58,7 +58,19 @@
         <p class="label">Skor tiap kelas</p>
         <div id="result-bars"></div>
         <p class="hint" id="result-note"></p>
+        
+        <div id="explanation-section" class="mt" hidden>
+          <p class="label" style="margin-top: 24px;">Perhitungan skor</p>
+          <div id="explanation-content"></div>
+        </div>
       </div>
+    </div>
+    
+    <div class="card mt">
+      <h3 class="h-xs">Darimana skor ini berasal?</h3>
+      <p class="hint">Model mengekstrak 54 fitur visual dari gambar Anda, dikelompokkan dalam 4 kategori. 
+      Grafik di bawah menunjukkan nilai fitur yang dihitung dari crop Anda:</p>
+      <div id="feature-breakdown"></div>
     </div>
   </div>
 </section>

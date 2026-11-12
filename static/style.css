@@ -178,3 +178,25 @@ svg.chart text { font-family: var(--f-body); font-size: 11px; fill: var(--ink); 
   .band { padding: 80px 0; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+
+/* ---------- feature breakdown ---------- */
+.feat-group { margin-bottom: 32px; }
+.feat-group h4 { font: 500 18px/1.3 var(--f-body); color: var(--indigo); margin-bottom: 6px; }
+.feat-summary { display: flex; gap: 28px; margin: 12px 0; font-size: 14px; color: var(--ink); }
+.feat-summary b { color: var(--indigo); }
+.feat-bars { display: grid; gap: 6px; }
+.mini-bar { display: grid; grid-template-columns: 160px 1fr 70px; gap: 10px; align-items: center; font-size: 12px; }
+.mini-label { font-family: monospace; color: #555; }
+.mini-val { text-align: right; font-family: monospace; }
+
+/* ---------- explanation section ---------- */
+.explain-box { background: #f5f3ef; border-left: 4px solid var(--indigo); padding: 20px; border-radius: 8px; margin-bottom: 16px; }
+.explain-box h4 { font: 500 16px/1.4 var(--f-body); color: var(--indigo); margin-bottom: 12px; }
+.explain-box p { margin: 10px 0; line-height: 1.6; }
+.vote-chart, .feat-importance { margin: 16px 0; }
+.vote-row, .imp-row { display: grid; grid-template-columns: 140px 1fr 140px; gap: 12px; align-items: center; margin-bottom: 8px; font-size: 13px; }
+.vote-label, .imp-name { font-weight: 500; }
+.vote-val, .imp-val { text-align: right; font-size: 12px; color: #555; }
+.imp-row { grid-template-columns: 30px 160px 1fr 80px; }
+.imp-rank { font-weight: 600; color: var(--indigo); text-align: center; }
+
