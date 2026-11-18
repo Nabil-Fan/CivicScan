@@ -89,6 +89,12 @@ def predict():
     pipe = b["pipelines"][scen]
 
     x = P.extract_features(img).reshape(1, -1)
+    
+    # Scale features
+    x_scaled = pipe.named_steps["scaler"].transform(x)
+    if "cluster" in pipe.named_steps:
+        x_scaled = pipe.named_steps["cluster"].transform(x_scaled)
+    
     proba = pipe.predict_proba(x)[0]
     names = [b["class_names"][b["class_ids"].index(c)] for c in pipe.classes_]
     order = proba.argsort()[::-1]
@@ -99,6 +105,81 @@ def predict():
         z = pipe.named_steps["scaler"].transform(x)
         cluster = {"id": int(pipe.named_steps["cluster"].cluster_ids(z)[0]),
                    "k": int(pipe.named_steps["cluster"].n_clusters)}
+
+    # Feature breakdown untuk penjelasan
+    feat_dict = P.feature_dictionary()
+    feat_names = P.feature_names()
+    features = {}
+    for fam in ["warna", "intensitas", "tepi", "tekstur"]:
+        fam_feats = feat_dict[feat_dict["family"] == fam]
+        fam_values = {row["feature"]: float(x[0, feat_names.index(row["feature"])]) 
+                      for _, row in fam_feats.iterrows()}
+        features[fam] = {
+            "values": fam_values,
+            "summary": {
+                "mean": float(sum(fam_values.values()) / len(fam_values)) if fam_values else 0,
+                "max": float(max(fam_values.values())) if fam_values else 0,
+                "count": len(fam_values)
+            }
+        }
+    
+    # Explanation: kenapa dapet skor ini
+    explanation = {"method": scen}
+    clf = pipe.named_steps["clf"]
+    
+    if scen in ["A", "B"]:  # KNN
+        # Hitung distance ke semua training samples
+        from sklearn.neighbors import KNeighborsClassifier
+        if hasattr(clf, "kneighbors"):
+            distances, indices = clf.kneighbors(x_scaled)
+            neighbor_classes = clf._y[indices[0]]  # Classes of k-nearest neighbors
+            
+            # Count votes per class
+            class_votes = {}
+            for cls in pipe.classes_:
+                class_votes[names[list(pipe.classes_).index(cls)]] = int(sum(neighbor_classes == cls))
+            
+            # Get feature differences with neighbors
+            # Simplified: just show which features differ most
+            explanation["knn"] = {
+                "k": int(clf.n_neighbors),
+                "votes": class_votes,
+                "avg_distance": float(distances[0].mean()),
+                "closest_distance": float(distances[0].min()),
+                "farthest_distance": float(distances[0].max())
+            }
+    
+    elif scen in ["C", "D"]:  # Decision Tree
+        from sklearn.tree import DecisionTreeClassifier
+        if hasattr(clf, "tree_"):
+            # Get decision path
+            node_indicator = clf.decision_path(x_scaled)
+            leaf_id = clf.apply(x_scaled)[0]
+            
+            # Get feature importances from the tree
+            feature_importance = clf.feature_importances_
+            top_features_idx = feature_importance.argsort()[-5:][::-1]
+            
+            # Map back to original feature names (before cluster augmentation)
+            n_orig_features = len(feat_names)
+            top_features = []
+            for idx in top_features_idx:
+                if idx < n_orig_features:
+                    top_features.append({
+                        "name": feat_names[idx],
+                        "importance": float(feature_importance[idx])
+                    })
+            
+            # Get samples at leaf
+            n_samples_leaf = int(clf.tree_.n_node_samples[leaf_id])
+            
+            explanation["tree"] = {
+                "depth": int(clf.get_depth()),
+                "n_leaves": int(clf.get_n_leaves()),
+                "leaf_samples": n_samples_leaf,
+                "top_features": top_features,
+                "path_length": int(node_indicator.sum())
+            }
 
     w, h = img.size
     warnings = []
@@ -112,7 +193,8 @@ def predict():
 
     return jsonify(label=probs[0]["label"], confidence=probs[0]["p"], probs=probs, scenario=scen,
                    scenario_name=P.SCENARIOS[scen]["name"], cluster=cluster, size=[w, h],
-                   oof_macro_f1=b["oof_macro_f1"][scen], warnings=warnings,
+                   oof_macro_f1=b["oof_macro_f1"][scen], warnings=warnings, features=features,
+                   explanation=explanation,
                    proba_note=("Untuk KNN, nilai ini adalah proporsi suara tetangga; untuk Decision Tree, "
                                "proporsi kelas pada daun. Bukan probabilitas terkalibrasi."))
 
