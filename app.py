@@ -113,19 +113,36 @@ def parse_papers_markdown() -> List[Dict[str, str]]:
     return papers
 
 
-# --------------------------------------------------------------------------- Halaman Frontend
+# --------------------------------------------------------------------------- Halaman Frontend (React SPA + Jinja Fallback)
+FRONTEND_DIST = Path(__file__).resolve().parent / "frontend" / "dist"
+
+
+@app.route("/assets/<path:path>")
+def serve_assets(path: str):
+    assets_dir = FRONTEND_DIST / "assets"
+    if assets_dir.exists():
+        return send_from_directory(assets_dir, path)
+    return abort(404)
+
+
 @app.route("/")
 def index():
+    if not request.args.get("legacy") and FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
+        return send_from_directory(FRONTEND_DIST, "index.html")
     return render_template("index.html", page="demo")
 
 
 @app.route("/results")
 def results():
+    if not request.args.get("legacy") and FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
+        return send_from_directory(FRONTEND_DIST, "index.html")
     return render_template("results.html", page="results")
 
 
 @app.route("/cara-kerja")
 def cara_kerja():
+    if not request.args.get("legacy") and FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
+        return send_from_directory(FRONTEND_DIST, "index.html")
     return render_template("cara_kerja.html", page="cara-kerja")
 
 
