@@ -9,7 +9,7 @@
       "PctRural"
     ],
     "n_samples": 159,
-    "timestamp": "2026-11-19T09:40:06.516738"
+    "timestamp": "2026-11-19T13:24:15.850445"
   },
   "audit": {
     "dataset_name": "Georgia Socio-Economic & Civic Infrastructure Dataset (Fotheringham et al.)",
@@ -785,12 +785,12 @@
   "moran": {
     "k_neighbors": 6,
     "ols_moran_i": 0.10218574191604121,
-    "ols_p_value": 0.006,
-    "ols_z_score": 2.640902369068562,
+    "ols_p_value": 0.019,
+    "ols_z_score": 2.3493465128738387,
     "ols_spatial_bias": true,
     "gwr_moran_i": 0.01130293727270371,
-    "gwr_p_value": 0.326,
-    "gwr_z_score": 0.43273979776092975,
+    "gwr_p_value": 0.322,
+    "gwr_z_score": 0.40750543227331226,
     "gwr_spatial_bias": false,
     "verdict": "GWR berhasil mengeliminasi bias autokorelasi spasial residual OLS!"
   },
