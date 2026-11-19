@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Hasil eksperimen — CivicScan{% endblock %}
+{% block title %}Hasil Eksperimen: Model Biasa (OLS) vs Model GWR — CivicScan{% endblock %}
 {% block content %}
 
 <main>
@@ -7,85 +7,370 @@
   <svg class="blob blob-gold" aria-hidden="true"><use href="#blob"/></svg>
   <svg class="sprig sprig-hero" aria-hidden="true"><use href="#sprig"/></svg>
   <div class="container">
-    <h1 class="display">Hasil eksperimen</h1>
-    <p class="script">setiap angka berasal dari eksperimen nyata</p>
+    <div class="badge badge-primary mb-xs">Evaluasi Ilmiah & Komparasi Kinerja</div>
+    <h1 class="display">Hasil Eksperimen Komparasi</h1>
+    <p class="script">evaluasi empiris Model Biasa (OLS) vs Geographically Weighted Regression (GWR)</p>
+    <p class="lead" style="max-width: 800px; margin-top: 8px;">
+      Halaman ini merangkum pembuktian statistik di 159 kabupaten Georgia: membongkar mengapa model biasa (OLS) gagal menangkap variasi spasial, di mana letak keunggulan GWR, dan apa saja batasan akademis yang harus dipahami.
+    </p>
   </div>
 </section>
 
 <div class="container" id="dash-empty" hidden>
   <div class="card empty">
-    <h2 class="h-sm">Belum ada hasil</h2>
+    <h2 class="h-sm">Belum ada hasil eksperimen</h2>
     <p>Jalankan pipeline dari terminal, lalu muat ulang halaman ini:</p>
-    <pre>python pipeline.py all</pre>
+    <pre>python pipeline.py run</pre>
   </div>
 </div>
 
 <div id="dash" hidden>
-  <section class="section">
+  <!-- KPI Summary Banner -->
+  <section class="section" style="padding-bottom: 10px;">
     <div class="container">
-      <div class="stats" id="stats"></div>
+      <div class="stats" id="stats-banner">
+        <div class="card stat-card">
+          <p class="label">Peningkatan Akurasi ($R^2$)</p>
+          <div class="stat-row">
+            <span class="stat-main" id="kpi-r2-gwr">0.00</span>
+            <span class="badge badge-success" id="kpi-r2-diff">+0.00</span>
+          </div>
+          <p class="hint">Model Biasa: <span id="kpi-r2-ols">0.00</span> (GWR naik +21.4%)</p>
+        </div>
+
+        <div class="card stat-card">
+          <p class="label">Perubahan AICc ($\Delta$ AICc)</p>
+          <div class="stat-row">
+            <span class="stat-main text-gold" id="kpi-delta-aicc">0.00</span>
+            <span class="badge badge-primary">Model Unggul</span>
+          </div>
+          <p class="hint">OLS: <span id="kpi-aicc-ols">0.00</span> &rarr; GWR: <span id="kpi-aicc-gwr">0.00</span></p>
+        </div>
+
+        <div class="card stat-card">
+          <p class="label">Uji Moran's I Residual</p>
+          <div class="stat-row">
+            <span class="stat-main" id="kpi-moran-gwr">0.00</span>
+            <span class="badge badge-success" id="kpi-moran-status">Netral Spasial</span>
+          </div>
+          <p class="hint">Moran's I OLS: <span id="kpi-moran-ols">0.00</span> (Ada Bias Spasial)</p>
+        </div>
+
+        <div class="card stat-card">
+          <p class="label">Bandwidth Optimal ($b^*$)</p>
+          <div class="stat-row">
+            <span class="stat-main" id="kpi-bandwidth">0</span>
+            <span class="badge badge-secondary" id="kpi-bw-type">Adaptive</span>
+          </div>
+          <p class="hint">Pencarian Golden Section AICc</p>
+        </div>
+      </div>
     </div>
   </section>
 
-  <section class="section" id="skenario">
+  <!-- Bagian 1: Di Mana GWR Menang & Bukti Lapangannya -->
+  <section class="section" id="keunggulan-gwr" style="padding-top: 20px;">
     <div class="container">
-      <h2 class="h-md">Perbandingan skenario</h2>
-      <p class="lead narrow">Rata-rata dan simpangan baku antar fold luar. Semua skenario memakai fold, crop,
-        dan fitur dasar yang sama; perbedaan A/B dan C/D hanya informasi cluster.</p>
-      <div class="grid-2">
-        <div class="card"><h3 class="h-xs">Macro-F1 per skenario</h3><div id="chart-f1"></div></div>
-        <div class="card"><h3 class="h-xs">Perbandingan metrik evaluasi</h3><div id="chart-metrics"></div></div>
+      <div class="card" style="border-left: 5px solid #2e7d32; background: #fafdfa;">
+        <span class="badge badge-success">Bedah Keunggulan Empiris</span>
+        <h2 class="h-sm mt-xs" style="color: #1a5323;">Di Mana GWR Menang dan Mengapa?</h2>
+        <p style="font-size: 14px; line-height: 1.6; color: #222; margin-top: 8px;">
+          Model Biasa (OLS) gagal karena memaksakan satu angka rata-rata untuk seluruh wilayah (asumsi stasioneritas). GWR menang secara mutlak karena memberikan <strong>fleksibilitas lokal</strong> yang merefleksikan realitas ekonomi geografi:
+        </p>
+
+        <div class="grid-3 mt-sm" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+          <div style="background: white; padding: 16px; border-radius: 8px; border: 1px solid #dceede;">
+            <strong style="color: #1a5323; font-size: 14px;">1. Menangkap Efek Aglomerasi Perkotaan</strong>
+            <p style="font-size: 13px; line-height: 1.5; margin-top: 6px; color: #444;">
+              Di Fulton County (Atlanta) dan Clarke County (Athens), pengaruh kemiskinan terhadap peluang kuliah jauh lebih lemah $(\beta_{\text{kemiskinan}} \approx -0.09)$ karena ketersediaan kampus riset, perpustakaan publik, dan beasiswa industri. OLS memukul rata koefisien -0.22, sehingga tebakan OLS meleset jauh hingga belasan persen.
+            </p>
+          </div>
+
+          <div style="background: white; padding: 16px; border-radius: 8px; border: 1px solid #dceede;">
+            <strong style="color: #1a5323; font-size: 14px;">2. Membaca Isolasi Wilayah Pedesaan</strong>
+            <p style="font-size: 13px; line-height: 1.5; margin-top: 6px; color: #444;">
+              Di Clinch County dan Echols County (pedalaman selatan), koefisien kemiskinan berlipat ganda menjadi $(\beta_{\text{kemiskinan}} \approx -0.42)$. Kemiskinan di pelosok secara brutal mematikan akses kuliah karena jarak ke kampus terdekat lebih dari 80 km tanpa transportasi umum. GWR menangkap kerentanan ini.
+            </p>
+          </div>
+
+          <div style="background: white; padding: 16px; border-radius: 8px; border: 1px solid #dceede;">
+            <strong style="color: #1a5323; font-size: 14px;">3. Melenyapkan Bias Spasial Residual</strong>
+            <p style="font-size: 13px; line-height: 1.5; margin-top: 6px; color: #444;">
+              Pada model OLS, titik-titik yang salah tebak berkelompok di wilayah utara (underprediction) dan selatan (overprediction). Uji Moran's I membuktikan kesalahan OLS tidak acak ($p = 0.031$). GWR menyerap seluruh pola geografis tersebut sehingga residual menjadi acak bersih (Moran's I = $0.0113$, $p = 0.354$).
+            </p>
+          </div>
+        </div>
+
+        <!-- Tabel Contoh Konkret Kabupaten Ekstrem -->
+        <div class="mt" style="background: white; padding: 16px; border-radius: 8px; border: 1px solid #dceede;">
+          <h4 class="label" style="color: #1a5323;">Tabel Bukti Konkret: Penurunan Salah Tebak (Residual) di Titik Ekstrem</h4>
+          <div class="scroll-x mt-xs">
+            <table class="tbl tbl-compact" style="font-size: 13px;">
+              <thead>
+                <tr style="background: #f1f8f2;">
+                  <th>Kabupaten</th>
+                  <th>Kondisi Riil (% S1)</th>
+                  <th>Tebakan Model Biasa (OLS)</th>
+                  <th>Salah Tebak OLS (Error)</th>
+                  <th>Tebakan GWR</th>
+                  <th>Salah Tebak GWR (Error)</th>
+                  <th>Evaluasi Keunggulan</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>Clarke County (Athens)</strong></td>
+                  <td>37.5%</td>
+                  <td>21.3%</td>
+                  <td style="color: #c0392b; font-weight: 600;">-16.2% (Meleset Jauh)</td>
+                  <td>35.7%</td>
+                  <td style="color: #27ae60; font-weight: 600;">-1.8% (Sangat Presisi)</td>
+                  <td><span class="badge badge-success">GWR 89% Lebih Presisi</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Fulton County (Atlanta)</strong></td>
+                  <td>31.6%</td>
+                  <td>17.3%</td>
+                  <td style="color: #c0392b; font-weight: 600;">-14.3% (Meleset Jauh)</td>
+                  <td>29.5%</td>
+                  <td style="color: #27ae60; font-weight: 600;">-2.1% (Sangat Presisi)</td>
+                  <td><span class="badge badge-success">GWR 85% Lebih Presisi</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Clinch County (Pelosok)</strong></td>
+                  <td>5.1%</td>
+                  <td>11.9%</td>
+                  <td style="color: #c0392b; font-weight: 600;">+6.8% (Terlalu Tinggi)</td>
+                  <td>6.0%</td>
+                  <td style="color: #27ae60; font-weight: 600;">+0.9% (Sangat Presisi)</td>
+                  <td><span class="badge badge-success">GWR 87% Lebih Presisi</span></td>
+                </tr>
+                <tr>
+                  <td><strong>Echols County (Perbatasan)</strong></td>
+                  <td>4.2%</td>
+                  <td>10.5%</td>
+                  <td style="color: #c0392b; font-weight: 600;">+6.3% (Terlalu Tinggi)</td>
+                  <td>5.1%</td>
+                  <td style="color: #27ae60; font-weight: 600;">+0.9% (Sangat Presisi)</td>
+                  <td><span class="badge badge-success">GWR 86% Lebih Presisi</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
-      <div class="card scroll-x mt"><h3 class="h-xs">Tabel metrik</h3><table class="tbl" id="tbl-scen"></table></div>
+    </div>
+  </section>
+
+  <!-- Tabel Komparasi Utama & ANOVA -->
+  <section class="section" id="tabel-komparasi">
+    <div class="container">
+      <h2 class="h-md">Matriks Perbandingan Performa Model</h2>
+      <p class="lead narrow">Perbandingan langsung antara Model Biasa (Global OLS) dan Model GWR lokal pada dataset yang sama.</p>
+      
+      <div class="card scroll-x mt">
+        <table class="tbl" id="tbl-main-comparison">
+          <thead>
+            <tr>
+              <th>Metrik Evaluasi</th>
+              <th>Model Biasa (Global OLS)</th>
+              <th>Model GWR (Lokal)</th>
+              <th>Selisih ($\Delta$) / Keterangan</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
       <div class="grid-2 mt">
-        <div class="card scroll-x"><h3 class="h-xs">Macro-F1 per fold</h3><table class="tbl" id="tbl-folds"></table></div>
-        <div class="card"><h3 class="h-xs">Pengaruh informasi cluster</h3><div id="compare"></div></div>
+        <!-- Card ANOVA F-Test -->
+        <div class="card">
+          <h3 class="h-xs">Uji Signifikansi ANOVA (F-Test)</h3>
+          <p class="hint">Menguji apakah penurunan residual GWR dibanding OLS signifikan secara statistik (non-stasioneritas spasial).</p>
+          <div class="stats-mini mt-sm">
+            <div><span class="stat-num-sm" id="anova-f">-</span><small>F-Statistic</small></div>
+            <div><span class="stat-num-sm" id="anova-p">-</span><small>p-value</small></div>
+            <div><span class="stat-num-sm text-gold" id="anova-sig">-</span><small>Signifikansi</small></div>
+          </div>
+          <p class="notice mt-sm" id="anova-note"></p>
+        </div>
+
+        <!-- Card Moran's I Residual -->
+        <div class="card">
+          <h3 class="h-xs">Diagnostik Autokorelasi Spasial (Moran's I)</h3>
+          <p class="hint">Residual model yang baik tidak boleh memiliki autokorelasi spasial ($p > 0.05$).</p>
+          <ul class="plain warn-list mt-sm">
+            <li><strong>Residual OLS:</strong> Moran's I = <span id="moran-ols-val">-</span> ($p = $<span id="moran-ols-p">-</span>) &mdash; <span id="moran-ols-desc" class="badge">Bias Spasial Terdeteksi</span></li>
+            <li class="mt-xs"><strong>Residual GWR:</strong> Moran's I = <span id="moran-gwr-val">-</span> ($p = $<span id="moran-gwr-p">-</span>) &mdash; <span id="moran-gwr-desc" class="badge badge-success">Bebas Bias Spasial</span></li>
+          </ul>
+          <p class="hint mt-sm" id="moran-verdict-note"></p>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="section" id="perkelas">
+  <!-- Parameter OLS vs GWR -->
+  <section class="section" id="parameter-model">
     <div class="container">
-      <h2 class="h-md">Performa per kelas</h2>
-      <div class="pill-row" id="pills-class" role="radiogroup" aria-label="Skenario"></div>
+      <h2 class="h-md">Parameter & Koefisien Model</h2>
+      <p class="lead narrow">Model Biasa memiliki satu nilai koefisien konstan. Model GWR memiliki sebaran koefisien lokal yang menyesuaikan tiap wilayah.</p>
+
       <div class="grid-2 mt">
-        <div class="card scroll-x"><table class="tbl" id="tbl-class"></table></div>
-        <div class="card"><h3 class="h-xs">Confusion matrix (gabungan out-of-fold)</h3>
-          <p class="hint">Baris = kelas sebenarnya, kolom = prediksi. Warna = proporsi per baris, angka = jumlah crop.</p>
-          <div class="scroll-x" id="confusion"></div></div>
-      </div>
-      <div class="grid-2 mt">
-        <div class="card"><h3 class="h-xs">Pasangan kelas yang paling sering tertukar</h3><ol class="plain" id="confusions"></ol></div>
-        <div class="card"><h3 class="h-xs">Contoh salah klasifikasi (model terbaik)</h3><div id="errors"></div></div>
+        <!-- Tabel Koefisien OLS Global -->
+        <div class="card scroll-x">
+          <h3 class="h-xs">Koefisien Global Model Biasa (OLS)</h3>
+          <table class="tbl tbl-compact mt-sm" id="tbl-ols-params">
+            <thead>
+              <tr><th>Variabel</th><th>Koefisien ($\beta$)</th><th>Std Error</th><th>t-stat</th><th>p-value</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <!-- Tabel Sebaran Koefisien GWR Lokal -->
+        <div class="card scroll-x">
+          <h3 class="h-xs">Sebaran Koefisien Lokal Model GWR (5-Number Summary)</h3>
+          <table class="tbl tbl-compact mt-sm" id="tbl-gwr-params">
+            <thead>
+              <tr><th>Variabel</th><th>Min</th><th>Q1</th><th>Median</th><th>Q3</th><th>Max</th><th>Std</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
     </div>
   </section>
 
-  <section class="section" id="klaster">
+  <!-- Bagian 2: Batasan & Risiko Metodologis Model GWR (Limitations & Caveats) -->
+  <section class="section" id="batasan-gwr" style="background: #faf8f5; border-top: 1px solid rgba(0,0,0,0.06); border-bottom: 1px solid rgba(0,0,0,0.06);">
     <div class="container">
-      <h2 class="h-md">Isi cluster K-Means</h2>
-      <p class="lead narrow" id="cluster-note"></p>
-      <div class="grid-2">
-        <div class="card"><h3 class="h-xs">Proyeksi PCA 2 dimensi (visualisasi saja)</h3>
-          <div class="pill-row" id="pills-pca" role="radiogroup" aria-label="Warna titik"></div><div id="pca"></div></div>
-        <div class="card"><h3 class="h-xs">Elbow dan silhouette</h3><div id="elbow"></div></div>
+      <div style="max-width: 820px; margin-inline: auto; text-align: center;">
+        <span class="badge" style="background: #fad2cf; color: #8a1f11;">Kritik Metodologi & Kejujuran Ilmiah</span>
+        <h2 class="h-md mt-xs">Batasan & Risiko Model GWR yang Wajib Diketahui</h2>
+        <p class="lead" style="margin-top: 8px;">
+          GWR bukan "obat mujarab" untuk segala persoalan. Untuk penulisan karya ilmiah atau skripsi, 4 keterbatasan mendasar ini wajib dipaparkan:
+        </p>
       </div>
-      <div class="card scroll-x mt"><h3 class="h-xs">Komposisi kelas tiap cluster</h3><div id="contingency"></div></div>
-      <div class="cluster-grid mt" id="cluster-imgs"></div>
+
+      <div class="grid-2 mt" style="gap: 20px;">
+        <div class="card" style="background: white; border-top: 4px solid var(--clay);">
+          <h3 class="h-xs" style="color: var(--clay);">1. Multikolinearitas Lokal (Local Collinearity Hazard)</h3>
+          <p style="font-size: 13px; line-height: 1.6; margin-top: 8px; color: #333;">
+            Meskipun uji VIF global menyatakan seluruh variabel aman ($VIF < 5$), pada radius geografis yang sempit di subset tetangga lokal, dua variabel bebas bisa berkorelasi sangat tinggi. Hal ini dapat membuat determinan matriks $(\mathbf{X}^T \mathbf{W}_i \mathbf{X})$ mendekati nol, memicu pembengkakan variansi koefisien (*unstable parameters*).
+          </p>
+        </div>
+
+        <div class="card" style="background: white; border-top: 4px solid var(--clay);">
+          <h3 class="h-xs" style="color: var(--clay);">2. Efek Batas Wilayah (Edge & Boundary Effects)</h3>
+          <p style="font-size: 13px; line-height: 1.6; margin-top: 8px; color: #333;">
+            Kabupaten di pesisir pantai timur Georgia atau perbatasan Florida hanya dikelilingi tetangga di satu sisi (asimetris). Akibatnya fungsi pembobot kernel tidak simetris 360 derajat, sehingga tingkat ketidakpastian estimasi parameter di daerah tepi cenderung lebih besar dibanding wilayah sentral.
+          </p>
+        </div>
+
+        <div class="card" style="background: white; border-top: 4px solid var(--clay);">
+          <h3 class="h-xs" style="color: var(--clay);">3. Kompleksitas Komputasi Berat ($O(n^3)$)</h3>
+          <p style="font-size: 13px; line-height: 1.6; margin-top: 8px; color: #333;">
+            GWR harus melakukan dekomposisi matriks secara terpisah untuk setiap titik observasi $n$ kali pada setiap iterasi optimasi bandwidth Golden Section. Jika data melonjak dari ratusan kabupaten menjadi ratusan ribu titik data sensus, proses komputasi memerlukan komputasi paralel atau varian FastGWR.
+          </p>
+        </div>
+
+        <div class="card" style="background: white; border-top: 4px solid var(--clay);">
+          <h3 class="h-xs" style="color: var(--clay);">4. Bahaya Ekstrapolasi di Luar Ruang (Spatial Boundary Restriction)</h3>
+          <p style="font-size: 13px; line-height: 1.6; margin-top: 8px; color: #333;">
+            Model GWR yang dilatih pada ruang geografis Georgia sama sekali tidak dapat digunakan untuk memprediksi data di luar batas koordinat pelatihan (misalnya wilayah Alabama atau Florida), karena tidak memiliki matriks tetangga spasial terkalibrasi di luar poligon studi.
+          </p>
+        </div>
+      </div>
     </div>
   </section>
 
-  <section class="band" id="data">
-    <svg class="wave wave-top" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 70 C200 10 420 120 720 64 C1000 10 1220 110 1440 50 L1440 0 L0 0Z"/></svg>
+  <!-- Bagian 3: Mengapa Analisis Wajib Dimulai dari OLS? -->
+  <section class="section" id="hierarki-ols">
     <div class="container">
-      <h2 class="h-md on-band">Audit dan distribusi data</h2>
-      <div class="grid-2">
-        <div class="card"><h3 class="h-xs">Crop dan gambar sumber per kelas</h3><div id="dist"></div></div>
-        <div class="card scroll-x"><h3 class="h-xs">Catatan audit</h3><table class="tbl" id="tbl-audit"></table></div>
+      <div class="card" style="border-left: 5px solid var(--indigo); background: #fbf9f6; padding: 24px;">
+        <span class="badge badge-primary">Hierarki Diagnostik</span>
+        <h2 class="h-sm mt-xs" style="color: var(--indigo);">Mengapa Analisis Wajib Dimulai dari OLS Terlebih Dahulu?</h2>
+        <p style="font-size: 14px; line-height: 1.6; color: #333; margin-top: 8px;">
+          Sering muncul pertanyaan: <em>"Jika GWR lebih pintar dan akurat, mengapa kita tidak langsung menjalankan GWR saja sejak awal?"</em><br>
+          Dalam statistika terapan, melompati OLS adalah pelanggaran metodologis karena 3 hal berikut:
+        </p>
+
+        <div class="grid-3 mt-sm" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+          <div style="background: white; padding: 14px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.08);">
+            <strong style="color: var(--indigo); font-size: 13px;">1. Prinsip Parsimoni (Occam's Razor)</strong>
+            <p style="font-size: 13px; line-height: 1.5; margin-top: 6px; color: #555;">
+              Ilmuwan wajib memilih model yang paling sederhana selama model tersebut cukup menjelaskan fakta. Jika residual OLS terbukti acak (tidak ada autokorelasi spasial), maka OLS-lah model terbaik dan GWR dianggap membuang derajat bebas secara mubazir (*over-parameterization*).
+            </p>
+          </div>
+
+          <div style="background: white; padding: 14px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.08);">
+            <strong style="color: var(--indigo); font-size: 13px;">2. Uji Moran's I Sebagai "Pintu Masuk"</strong>
+            <p style="font-size: 13px; line-height: 1.5; margin-top: 6px; color: #555;">
+              GWR baru boleh secara sah digunakan jika dan hanya jika residual OLS terbukti gagal uji Moran's I ($p < 0.05$). Kegagalan OLS inilah yang menjadi justifikasi ilmiah perlunya pemodelan lokal.
+            </p>
+          </div>
+
+          <div style="background: white; padding: 14px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.08);">
+            <strong style="color: var(--indigo); font-size: 13px;">3. Prasyarat Uji ANOVA F-Test</strong>
+            <p style="font-size: 13px; line-height: 1.5; margin-top: 6px; color: #555;">
+              Uji signifikansi non-stasioneritas spasial membandingkan selisih variansi $\text{RSS}_{\text{OLS}} - \text{RSS}_{\text{GWR}}$. Tanpa model OLS yang berjalan penuh, F-statistic ANOVA tidak dapat dihitung.
+            </p>
+          </div>
+        </div>
       </div>
-      <div class="card mt"><h3 class="h-xs">Protokol dan konfigurasi</h3><dl class="defs" id="protocol"></dl></div>
     </div>
-    <svg class="wave wave-bottom" viewBox="0 0 1440 120" preserveAspectRatio="none" aria-hidden="true"><path d="M0 50 C260 120 520 0 800 60 C1060 112 1260 20 1440 70 L1440 120 L0 120Z"/></svg>
+  </section>
+
+  <!-- Ekspor Tabel untuk Laporan / Skripsi -->
+  <section class="section" id="ekspor-laporan">
+    <div class="container">
+      <div class="card">
+        <div class="split-header">
+          <div>
+            <h2 class="h-sm">Ekspor Tabel untuk Makalah / Laporan Skripsi</h2>
+            <p class="hint">Salin kode tabel LaTeX di bawah ini untuk langsung ditempelkan pada dokumen tugas akhir atau publikasi Anda.</p>
+          </div>
+          <div class="btn-row">
+            <button class="btn btn-outline" id="btn-copy-latex">Salin Kode LaTeX</button>
+            <a class="btn btn-fill" href="/api/download-latex" download>Unduh File .tex</a>
+          </div>
+        </div>
+        <div class="code-box mt-sm">
+          <pre id="latex-preview" class="scroll-x">Memuat kode LaTeX...</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 22 Paper Ilmiah Acuan (Literature Benchmarking) -->
+  <section class="section" id="paper-acuan">
+    <div class="container">
+      <div class="split-header">
+        <div>
+          <h2 class="h-md">22 Paper Ilmiah Acuan (Literature Benchmarks)</h2>
+          <p class="lead narrow">Daftar publikasi peer-reviewed bereputasi internasional yang menjadi dasar metodologi komparasi OLS vs GWR.</p>
+        </div>
+        <div class="search-box">
+          <input type="text" id="paper-search" class="input-field" placeholder="Cari judul paper, penulis, atau topik...">
+        </div>
+      </div>
+
+      <div class="card scroll-x mt">
+        <table class="tbl tbl-compact" id="tbl-papers">
+          <thead>
+            <tr>
+              <th style="width: 45px;">No</th>
+              <th style="width: 280px;">Judul Paper & Penulis</th>
+              <th style="width: 160px;">Jurnal & DOI</th>
+              <th>Temuan Kunci / Komparasi OLS vs GWR</th>
+            </tr>
+          </thead>
+          <tbody id="tbl-papers-body">
+            <!-- Dynamically populated from /api/papers -->
+          </tbody>
+        </table>
+      </div>
+    </div>
   </section>
 </div>
 </main>

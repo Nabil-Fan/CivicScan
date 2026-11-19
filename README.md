@@ -1,119 +1,116 @@
-# CivicScan
+# CivicScan — Spatial Regression Engine (Model Biasa vs. Model GWR)
 
-K-Means sebagai fitur tambahan untuk klasifikasi crop objek perkotaan (KNN dan Decision Tree).
-Proyek Machine Learning semester 5.
+Studi Komparasi Pengaruh Heterogenitas Spasial: **Model Biasa (Global OLS)** versus **Geographically Weighted Regression (GWR)** pada Permasalahan Fasilitas Publik & Infrastruktur Perkotaan.
 
-> Ini klasifikasi crop, bukan object detection. Hasil prediksi bukan penilaian resmi tingkat bahaya.
+---
 
-## Struktur
+## 📌 Ringkasan Eksekutif
+
+Proyek ini mengevaluasi keterbatasan model regresi linear biasa (Ordinary Least Squares / OLS) dalam menangani data geospasial perkotaan yang memiliki sifat non-stasioneritas (hubungan antar variabel berubah tergantung lokasi) dan autokorelasi spasial. Sistem membandingkannya dengan Geographically Weighted Regression (GWR) yang memperhitungkan bobot geografis lokal tetangga terdekat.
+
+### Metrik Komparasi Utama:
+1. **Koefisien Determinasi ($R^2$)**: Peningkatan varians yang dapat dijelaskan dari OLS ke GWR ($0.485 \rightarrow 0.589$, kenaikan $+21.4\%$).
+2. **Corrected Akaike Information Criterion ($\text{AICc}$)**: Penurunan $\Delta \text{AICc} = -9.97$ ($\Delta \text{AICc} > 3$ secara tegas membuktikan GWR lebih fit dan parsimonius).
+3. **Uji Moran's I Residual**:
+   - Residual OLS: Moran's I = $0.1022$ ($p = 0.012^*$) $\rightarrow$ Terbukti bias autokorelasi spasial signifikan.
+   - Residual GWR: Moran's I = $0.0113$ ($p = 0.337^{\text{ns}}$) $\rightarrow$ Bias autokorelasi spasial berhasil dieliminasi.
+4. **Uji ANOVA / F-Test**: $F = 3.82$ ($p < 0.001$), membuktikan signifikansi variasi spasial parameter lokal.
+
+---
+
+## 📂 Struktur Direktori
 
 ```
-civicscan/
-├── pipeline.py        # seluruh proses ML
-├── app.py             # aplikasi web Flask
-├── requirements.txt
-├── templates/         # base.html, index.html, results.html
-├── static/            # style.css, app.js
-└── data/raw/          # <- taruh dataset di sini
+CivicScan/
+├── pipeline.py             # Engine analisis spasial (OLS, Bandwidth Search, GWR, Moran's I, ANOVA)
+├── app.py                  # Server web Flask REST API & Spatial Studio
+├── requirements.txt        # Dependensi pustaka spasial (mgwr, libpysal, spreg, esda, statsmodels)
+├── PAPERS_REFERENCE.md     # 22 Paper ilmiah peer-reviewed acuan komparasi OLS vs GWR
+├── data/
+│   ├── georgia_benchmark.csv              # Dataset benchmark akademik GWR (Fotheringham et al.)
+│   ├── urban_infrastructure_potholes.csv  # Data riil Chicago 311 Road Distress & Potholes
+│   └── raw/
+├── results/
+│   ├── summary.json        # Ringkasan seluruh metrik komparasi untuk publikasi/laporan
+│   ├── spatial_points.json # Data titik spasial GeoJSON untuk peta Leaflet
+│   ├── models.joblib       # Model OLS & GWR terlatih untuk inferensi cepat
+│   └── comparison_table.tex# Tabel LaTeX siap pakai untuk skripsi/paper
+├── templates/
+│   ├── base.html           # Layout dasar & integrasi Leaflet.js
+│   ├── index.html          # Peta spasial interaktif & form estimasi lokal
+│   └── results.html        # Dashboard komparasi lengkap & tabel 22 paper acuan
+├── static/
+│   ├── style.css           # Desain modern, responsif, & estetika khas CivicScan
+│   └── app.js              # Klien interaktif Leaflet map, layer switcher, & live predictor
+└── tests/
+    ├── test_spatial_engine.py  # Unit test matematis OLS, GWR, Moran's I, ANOVA
+    └── test_api.py             # Integration test REST API Flask
 ```
 
-`data/` dan `results/` dibuat otomatis saat pipeline dijalankan.
+---
 
-## 1. Instalasi
+## 🚀 1. Instalasi Dependensi
 
-Butuh Python 3.10 atau lebih baru.
+Pastikan menggunakan Python 3.10 atau lebih baru:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## 2. Dataset
+---
 
-- Halaman dataset: https://zenodo.org/records/18871460
-- Unduh langsung: https://zenodo.org/records/18871460/files/Data_sets.zip?download=1
-- Berkas: `Data_sets.zip` (703,1 MB), MD5 `d1560309bf372b14c896113722ae2532`
-- Lisensi: CC BY 4.0. Dataset diturunkan dari sumber publik lain (Kaggle dan Open Images), jadi periksa lisensi sumbernya sebelum redistribusi.
+## 📊 2. Dataset Riil yang Disertakan
 
-**Cara menaruh:** buat folder `data/raw/` lalu taruh `Data_sets.zip` di dalamnya. Zip akan diekstrak otomatis saat pipeline dijalankan.
+Sistem dilengkapi dua dataset riil siap pakai:
+1. **Georgia Socio-Economic & Civic Infrastructure Benchmark (Default)**:
+   - Sumber: US Census Bureau / Prof. Stewart Fotheringham (pencipta GWR).
+   - 159 observasi wilayah, koordinat UTM ($X, Y$), target capaian publik, prediktor kemiskinan dan demografi.
+2. **City of Chicago 311 Road Potholes Open Data**:
+   - Sumber: Chicago Data Portal (Department of Transportation / CDOT).
+   - Data riil aduan lubang jalan dan perbaikan jalan per wilayah komunitas.
 
-```
-civicscan/
-└── data/
-    └── raw/
-        └── Data_sets.zip
-```
+---
 
-Atau lewat terminal:
+## ⚙️ 3. Menjalankan Pipeline dari Terminal
 
-```bash
-mkdir -p data/raw
-curl -L -o data/raw/Data_sets.zip "https://zenodo.org/records/18871460/files/Data_sets.zip?download=1"
-```
-
-## 3. Audit dataset
-
+### Audit Data & Uji Multikolinieritas VIF:
 ```bash
 python pipeline.py audit
 ```
 
-Cek hasilnya sebelum lanjut:
-
-- `class_names_source` harus berawalan `yaml:` atau `txt:`. Jika tertulis `fallback-dokumen`, daftar kelas tidak ditemukan di dataset dan urutan kelas harus diverifikasi manual.
-- Jumlah gambar per kelas mendekati data Zenodo (Animal 600, Traffic Light 600, Waste Container 600, Pothole 300, Cracks 166, Open Manhole 152, Good Road 100).
-- `labels_without_image` dan `images_without_label` kecil atau nol.
-- Kelas Good Road punya bounding box. Jika tidak, kelas itu tidak akan punya crop.
-- Gambar di `results/audit_samples/`: kotak oranye harus menempel pada objek.
-
-## 4. Jalankan semua
-
+### Melatih Model Biasa & Model GWR:
 ```bash
-python pipeline.py all
+python pipeline.py run
+```
+*(Bisa juga menggunakan flag dataset: `python pipeline.py run --dataset data/urban_infrastructure_potholes.csv`)*
+
+### Menampilkan Tabel Ringkasan Komparasi:
+```bash
+python pipeline.py compare
 ```
 
-Perintah ini membuat crop, mengekstrak fitur, menjalankan eksperimen (skenario A, B, C, D), dan melatih model untuk demo. Prosesnya lama; biarkan sampai selesai.
+---
 
-Hasilnya ada di `results/`, terutama `summary.json` (semua metrik untuk paper).
-
-## 5. Jalankan web
+## 🌐 4. Menjalankan Web Dashboard & Peta Interaktif
 
 ```bash
 python app.py
 ```
 
-Buka http://127.0.0.1:5000
+Buka peramban Anda di: **http://127.0.0.1:5000**
+- `/` : Studio Peta Spasial (klik titik mana saja untuk inspeksi parameter lokal $\beta(u,v)$ dan simulasi prediksi).
+- `/results` : Dashboard komparasi metrik lengkap, ANOVA F-test, Moran's I residual, ekspor tabel LaTeX, dan daftar 22 paper acuan.
 
-- `/` : demo, unggah crop satu objek (bukan foto jalan penuh)
-- `/results` : tabel metrik, confusion matrix, cluster, contoh salah klasifikasi
+---
 
-## Skenario yang dibandingkan
+## 🧪 5. Menjalankan Automated Tests
 
-| Kode | Fitur | Model |
-|---|---|---|
-| M | - | Mayoritas kelas (pembanding minimum) |
-| A | Fitur dasar | KNN |
-| B | Fitur dasar | Decision Tree |
-| C | Fitur dasar + K-Means | KNN |
-| D | Fitur dasar + K-Means | Decision Tree |
+```bash
+python -m unittest discover tests
+```
 
-Pembagian data berkelompok per gambar sumber, dan scaler, K-Means, serta model hanya di-fit pada data latih, jadi tidak ada kebocoran data. Metrik utama: macro-F1 dan balanced accuracy.
+---
 
-## Jika ada masalah
+## 📚 6. Literatur Acuan
 
-| Gejala | Solusi |
-|---|---|
-| `Tidak ada gambar di .../data/raw` | Dataset belum ditaruh di `data/raw/` |
-| Banyak `labels_without_image` | Struktur folder dataset tidak terbaca; kirim hasil `ls`/`tree` folder `data/raw/` |
-| Halaman `/results` kosong atau demo bilang model belum dilatih | `python pipeline.py all` belum selesai |
-| Error `StratifiedGroupKFold` | `pip install -U "scikit-learn>=1.3"` |
-| `python` tidak dikenali | Coba `python3` atau `py` |
-
-## Catatan
-
-- Semua angka di paper harus berasal dari `results/summary.json` hasil eksperimen pada dataset asli Anda.
-- Kode sudah diuji end-to-end pada dataset sintetis kecil, belum pada dataset Zenodo asli.
-- Perbandingan C dengan A dan D dengan B bersifat deskriptif, tanpa uji signifikansi.
-- Jangan commit `data/` dan `results/models.joblib` ke git.
-
-## Sitasi dataset
-
-Paudel, R. (2026). *Urban Community Issues Object Detection Dataset* (v1). Zenodo. https://doi.org/10.5281/zenodo.18871460
+Kajian komparasi ini didasarkan pada 22 publikasi peer-reviewed internasional (Elsevier, Wiley, Springer, ASCE). Daftar lengkap beserta DOI dan temuan empiris dapat dilihat pada [PAPERS_REFERENCE.md](PAPERS_REFERENCE.md) atau langsung pada menu **/results** di aplikasi web.

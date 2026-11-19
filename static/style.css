@@ -14,6 +14,12 @@
 html { scroll-behavior: smooth; }
 body { margin: 0; background: var(--cream); color: var(--ink); font: 400 16px/1.6 var(--f-body); letter-spacing: .01em; overflow-x: hidden; }
 img { max-width: 100%; display: block; }
+/* Reset penting untuk Leaflet Map Tiles agar gambar peta tidak terdistorsi/hilang */
+.leaflet-container img, .leaflet-tile {
+  max-width: none !important;
+  max-height: none !important;
+  display: inline !important;
+}
 a { color: var(--indigo); }
 h1, h2, h3, p, ol, ul, dl { margin: 0; }
 .container { width: min(1200px, 100% - 48px); margin-inline: auto; position: relative; z-index: 2; }
@@ -21,13 +27,13 @@ h1, h2, h3, p, ol, ul, dl { margin: 0; }
 [hidden] { display: none !important; }
 
 /* ---------- tipografi ---------- */
-.display { font: 400 clamp(46px, 7vw, 88px)/.95 var(--f-display); letter-spacing: .031em; color: var(--indigo); text-transform: uppercase; max-width: 12ch; }
+.display { font: 400 clamp(38px, 5.2vw, 64px)/1.02 var(--f-display); letter-spacing: .025em; color: var(--indigo); text-transform: uppercase; max-width: 22ch; }
 .hero-slim .display { max-width: none; }
-.h-md { font: 400 clamp(36px, 4.5vw, 56px)/1.05 var(--f-display); letter-spacing: .031em; color: var(--indigo); text-transform: uppercase; }
+.h-md { font: 400 clamp(32px, 4vw, 50px)/1.05 var(--f-display); letter-spacing: .031em; color: var(--indigo); text-transform: uppercase; }
 .h-sm { font: 400 32px/1 var(--f-display); letter-spacing: .043em; color: var(--indigo); text-transform: uppercase; }
 .h-xs { font: 400 24px/1.1 var(--f-display); letter-spacing: .06em; color: var(--indigo); text-transform: uppercase; margin-bottom: 12px; }
-.script { font: 500 clamp(28px, 3.4vw, 40px)/1.2 var(--f-script); color: var(--indigo); margin-top: 8px; }
-.lead { max-width: 56ch; margin-top: 20px; }
+.script { font: 500 clamp(24px, 2.8vw, 36px)/1.2 var(--f-script); color: var(--indigo); margin-top: 8px; }
+.lead { max-width: 64ch; margin-top: 16px; margin-inline: auto; }
 .narrow { max-width: 70ch; margin-bottom: 24px; }
 .label { font: 500 12px/1.6 var(--f-label); letter-spacing: .2em; text-transform: uppercase; color: var(--indigo); }
 .hint { font-size: 13px; line-height: 1.5; margin-top: 12px; }
@@ -49,7 +55,7 @@ h1, h2, h3, p, ol, ul, dl { margin: 0; }
 .btn-fill:disabled { opacity: .45; cursor: not-allowed; }
 .btn-outline { background: transparent; color: var(--orange); border-color: var(--orange); }
 .btn-outline:hover { background: var(--orange); color: var(--white); }
-.btn-sm { padding: 14px 28px; }
+.btn-sm { padding: 9px 18px; font-size: 12px; border-radius: 20px; }
 .btn-block { width: 100%; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 32px; }
 
@@ -61,9 +67,11 @@ h1, h2, h3, p, ol, ul, dl { margin: 0; }
 .sprig-hero { left: -42px; bottom: -70px; transform: rotate(-8deg); }
 .sprig-left { left: -48px; top: 40px; transform: rotate(7deg); }
 .sprig-footer { right: 40px; top: -110px; transform: rotate(8deg); color: var(--sky); }
-.hero { position: relative; padding: 56px 0 96px; overflow: hidden; }
+.hero { position: relative; padding: 48px 0 80px; overflow: hidden; }
+.hero-centered { text-align: center; }
+.hero-centered .display { margin-inline: auto; max-width: 24ch; }
 .hero-slim { padding: 40px 0 56px; }
-.hero-grid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+.hero-grid { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 44px; align-items: center; }
 .hero-slim .blob-gold { width: 380px; height: 380px; top: -120px; right: 4%; }
 
 /* ---------- kartu & permukaan ---------- */
@@ -200,3 +208,293 @@ svg.chart text { font-family: var(--f-body); font-size: 11px; fill: var(--ink); 
 .imp-row { grid-template-columns: 30px 160px 1fr 80px; }
 .imp-rank { font-weight: 600; color: var(--indigo); text-align: center; }
 
+
+
+/* ==========================================================================
+   CivicScan — Spatial Regression (Model Biasa vs GWR) Extension Styles
+   ========================================================================== */
+.grid-2-asym {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 28px;
+  align-items: start;
+}
+@media (max-width: 1000px) {
+  .grid-2-asym { grid-template-columns: 1fr; }
+}
+
+.studio-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+.map-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.pill-row button.pill {
+  border: 1px solid var(--indigo);
+  border-radius: 20px;
+  padding: 8px 16px;
+  font: 500 12px/1 var(--f-label);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  background: var(--white);
+  color: var(--indigo);
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.pill-row button.pill:hover {
+  background: #f0f4fc;
+}
+.pill-row button.pill.active {
+  background: var(--indigo);
+  color: var(--white);
+  box-shadow: 0 2px 8px rgba(35, 67, 134, 0.25);
+}
+
+.map-card {
+  padding: 16px;
+}
+.map-legend {
+  padding: 8px 12px;
+  background: var(--cream);
+  border-radius: 6px;
+  border: 1px solid rgba(0,0,0,.08);
+}
+.legend-bar {
+  margin-top: 6px;
+}
+.legend-grad {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(to right, #4575b4, #91bfdb, #ffffbf, #fee090, #fc8d59, #d73027);
+  border: 1px solid rgba(0,0,0,.15);
+}
+.legend-labels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 11px;
+  color: #555;
+}
+
+/* Inspector & Estimator */
+.inspector-card {
+  padding: 22px;
+  max-height: 660px;
+  overflow-y: auto;
+}
+.inspector-box {
+  background: var(--cream);
+  border: 1px solid var(--ink);
+  border-radius: 8px;
+  padding: 14px;
+}
+.inspector-badge {
+  font-size: 13px;
+  color: var(--indigo);
+}
+.stats-mini {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  text-align: center;
+}
+.stats-mini > div {
+  background: var(--white);
+  border-radius: 6px;
+  padding: 8px 6px;
+  border: 1px solid rgba(0,0,0,.08);
+}
+.stat-num-sm {
+  display: block;
+  font: 500 18px/1.1 var(--f-display);
+  letter-spacing: .04em;
+  color: var(--indigo);
+}
+.stats-mini small {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #666;
+  margin-top: 2px;
+}
+
+.grid-2-compact {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+.label-sm {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--indigo);
+  margin-bottom: 4px;
+}
+.input-field {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--ink);
+  border-radius: 6px;
+  background: var(--white);
+  font: 400 14px var(--f-body);
+  color: var(--ink);
+  box-sizing: border-box;
+}
+.input-field:focus {
+  outline: 2px solid var(--orange);
+  outline-offset: 1px;
+}
+
+.feature-inputs {
+  display: grid;
+  gap: 10px;
+}
+.feature-input-row {
+  display: grid;
+  grid-template-columns: 1fr 90px;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Comparison bar styling */
+.prediction-box {
+  background: #fbf9f6;
+  border-radius: 8px;
+  border: 1px solid var(--indigo);
+  padding: 16px;
+}
+.comp-bars-container {
+  display: grid;
+  gap: 8px;
+}
+.comp-row {
+  display: grid;
+  grid-template-columns: 120px 1fr 50px;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.comp-label {
+  font-weight: 500;
+  color: var(--indigo);
+}
+.bar-ols {
+  background: var(--indigo);
+}
+.bar-gwr {
+  background: var(--orange);
+}
+.text-gold {
+  color: #c97d00 !important;
+  font-weight: 600;
+}
+
+/* Badges */
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  background: #e2e8f0;
+  color: #334155;
+}
+.badge-success {
+  background: #dcfce7;
+  color: #166534;
+}
+.badge-primary {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.badge-secondary {
+  background: #fef3c7;
+  color: #92400e;
+}
+.badge-winner-gwr {
+  background: #dcfce7;
+  color: #166534;
+  border: 1px solid #86efac;
+}
+.badge-winner-ols {
+  background: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #93c5fd;
+}
+.badge-winner-tie {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fde68a;
+}
+
+/* Table Compact */
+.tbl-compact th, .tbl-compact td {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+/* Split header & Code box */
+.split-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.code-box pre {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 16px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  max-height: 320px;
+  margin: 0;
+}
+.search-box {
+  width: 280px;
+}
+
+.stat-card {
+  padding: 18px;
+}
+.stat-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 4px 0;
+}
+.stat-main {
+  font: 400 clamp(32px, 3.5vw, 44px)/1 var(--f-display);
+  letter-spacing: .02em;
+  color: var(--indigo);
+}
+
+/* Label Landmark Kota Utama di Peta */
+.map-city-label span {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(35, 67, 134, 0.25);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--indigo);
+  white-space: nowrap;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  backdrop-filter: blur(4px);
+}

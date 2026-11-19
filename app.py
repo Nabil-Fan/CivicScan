@@ -1,24 +1,37 @@
-"""CivicScan — aplikasi web Flask (demo klasifikasi crop + dasbor hasil eksperimen).
+"""CivicScan — Web Application (Spatial Regression: Model Biasa vs. Model GWR)
 
-Jalankan:  python app.py   ->  http://127.0.0.1:5000
-Model & ringkasan dibuat oleh:  python pipeline.py all
+Endpoints:
+- /                   : Spatial Studio (Peta Interaktif Leaflet + Spatial Point Estimator)
+- /results            : Dashboard Komparasi OLS vs GWR + Bibliografi 22 Paper Acuan
+- /api/status         : Status kesiapan model & metadata dataset
+- /api/results        : Ringkasan hasil komparasi lengkap (summary.json)
+- /api/spatial-points : Titik koordinat spasial observasi untuk peta Leaflet
+- /api/predict        : Prediksi titik spasial (membandingkan OLS vs GWR lokal)
+- /api/switch-dataset : Mengganti dataset aktif (Georgia Benchmark / Chicago Potholes)
+- /api/papers         : Daftar 22 paper ilmiah acuan
 """
+from __future__ import annotations
+
 import json
 import os
+import re
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import joblib
-from flask import Flask, abort, jsonify, render_template, request, send_from_directory
-from PIL import Image, ImageOps, UnidentifiedImageError
+import numpy as np
+import pandas as pd
+from flask import Flask, abort, jsonify, render_template, request, send_file, send_from_directory
 
-import pipeline as P  # extract_features() yang sama dengan saat training + kelas ClusterAugmenter
+import pipeline as P
 
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8 MB
-ALLOWED = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-_cache = {"mtime": None, "bundle": None}
+app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
+
+_cache: Dict[str, Any] = {"mtime": None, "bundle": None}
 
 
-def get_bundle():
+def get_bundle() -> Optional[Dict[str, Any]]:
     """Muat models.joblib; muat ulang otomatis jika file berubah."""
     if not P.MODELS_PATH.exists():
         return None
@@ -28,11 +41,79 @@ def get_bundle():
     return _cache["bundle"]
 
 
-def get_summary():
-    f = P.RES / "summary.json"
-    return json.loads(f.read_text(encoding="utf-8")) if f.exists() else None
+def get_summary() -> Optional[Dict[str, Any]]:
+    """Muat summary.json."""
+    if not P.SUMMARY_PATH.exists():
+        return None
+    try:
+        with open(P.SUMMARY_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 
+def get_spatial_points() -> List[Dict[str, Any]]:
+    """Muat spatial_points.json."""
+    p = P.RESULTS_DIR / "spatial_points.json"
+    if not p.exists():
+        return []
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def parse_papers_markdown() -> List[Dict[str, str]]:
+    """Parsing 22 paper dari PAPERS_REFERENCE.md."""
+    ref_file = P.ROOT / "PAPERS_REFERENCE.md"
+    if not ref_file.exists():
+        return []
+    
+    text = ref_file.read_text(encoding="utf-8")
+    blocks = re.split(r"### (\d+)\.\s+", text)
+    papers = []
+    
+    for i in range(1, len(blocks), 2):
+        num = blocks[i]
+        content = blocks[i + 1]
+        lines = content.strip().split("\n")
+        
+        paper = {
+            "number": num,
+            "short_author": lines[0].strip(),
+            "title": "",
+            "authors": "",
+            "journal": "",
+            "doi": "",
+            "doi_url": "",
+            "focus_comparison": ""
+        }
+        for line in lines[1:]:
+            line = line.strip()
+            if line.startswith("- **Judul**:"):
+                paper["title"] = line.replace("- **Judul**:", "").replace("*", "").strip()
+            elif line.startswith("- **Penulis**:"):
+                paper["authors"] = line.replace("- **Penulis**:", "").strip()
+            elif line.startswith("- **Jurnal**:"):
+                paper["journal"] = line.replace("- **Jurnal**:", "").replace("*", "").strip()
+            elif line.startswith("- **Penerbit**:"):
+                paper["journal"] = line.replace("- **Penerbit**:", "").replace("*", "").strip()
+            elif line.startswith("- **DOI**:"):
+                m_doi = re.search(r"\[([^\]]+)\]\(([^)]+)\)", line)
+                if m_doi:
+                    paper["doi"] = m_doi.group(1).strip()
+                    paper["doi_url"] = m_doi.group(2).strip()
+            elif line.startswith("- **Komparasi**:"):
+                paper["focus_comparison"] = line.replace("- **Komparasi**:", "").strip()
+            elif line.startswith("- **Fokus**:"):
+                paper["focus_comparison"] = line.replace("- **Fokus**:", "").strip()
+        papers.append(paper)
+        
+    return papers
+
+
+# --------------------------------------------------------------------------- Halaman Frontend
 @app.route("/")
 def index():
     return render_template("index.html", page="demo")
@@ -43,166 +124,206 @@ def results():
     return render_template("results.html", page="results")
 
 
+@app.route("/cara-kerja")
+def cara_kerja():
+    return render_template("cara_kerja.html", page="cara-kerja")
+
+
+# --------------------------------------------------------------------------- REST API
 @app.route("/api/status")
-def status():
+def api_status():
     b = get_bundle()
-    if not b:
-        return jsonify(ready=False)
-    s = get_summary() or {}
-    scen = {k: {"name": P.SCENARIOS[k]["name"], "macro_f1": b["oof_macro_f1"][k]} for k in b["pipelines"]}
-    return jsonify(ready=True, best=b["best"], scenarios=scen, classes=b["class_names"],
-                   n_crops=(s.get("meta") or {}).get("n_crops"))
+    s = get_summary()
+    if not b or not s:
+        return jsonify(ready=False, message="Model belum dilatih. Jalankan: python pipeline.py run")
+    
+    meta = s.get("meta", {})
+    comp = s.get("comparison", {})
+    return jsonify(
+        ready=True,
+        dataset_name=meta.get("dataset_name", "Spatial Dataset"),
+        target=meta.get("target", "Target"),
+        features=meta.get("features", []),
+        n_samples=meta.get("n_samples", 0),
+        best_model=comp.get("best_model", "GWR"),
+        r2_improvement_pct=comp.get("r2_improvement_pct", 0),
+        delta_aicc=comp.get("delta_aicc", 0)
+    )
 
 
 @app.route("/api/results")
 def api_results():
     s = get_summary()
-    return jsonify(s) if s else (jsonify(error="Belum ada hasil. Jalankan: python pipeline.py all"), 404)
+    if not s:
+        return jsonify(error="Belum ada hasil eksperimen. Jalankan: python pipeline.py run"), 404
+    return jsonify(s)
 
 
-@app.route("/files/<path:name>")
-def files(name):
-    allowed = ("clusters/", "errors/", "audit_samples/")
-    if not name.startswith(allowed):
+@app.route("/api/spatial-points")
+def api_spatial_points():
+    pts = get_spatial_points()
+    return jsonify(pts)
+
+
+@app.route("/api/papers")
+def api_papers():
+    papers = parse_papers_markdown()
+    return jsonify(papers=papers, total=len(papers))
+
+
+@app.route("/api/download-latex")
+def download_latex():
+    tex_path = P.RESULTS_DIR / "comparison_table.tex"
+    if not tex_path.exists():
         abort(404)
-    return send_from_directory(P.RES, name)
+    return send_file(tex_path, as_attachment=True, download_name="ols_vs_gwr_table.tex")
+
+
+@app.route("/api/switch-dataset", methods=["POST"])
+def switch_dataset():
+    data = request.get_json(silent=True) or {}
+    dataset_name = data.get("dataset", "georgia")
+    
+    if dataset_name == "chicago":
+        target_path = P.ALT_DATASET
+    else:
+        target_path = P.DEFAULT_DATASET
+
+    if not target_path.exists():
+        return jsonify(error=f"Berkas dataset {target_path.name} tidak ditemukan."), 404
+
+    try:
+        engine = P.SpatialRegressionEngine(data_path=target_path)
+        engine.run_all()
+        # Invalidate cache
+        _cache["mtime"] = None
+        _cache["bundle"] = None
+        return jsonify(success=True, message=f"Dataset berhasil diganti ke: {target_path.name}")
+    except Exception as e:
+        return jsonify(error=f"Gagal memuat dataset: {str(e)}"), 500
 
 
 @app.route("/api/predict", methods=["POST"])
 def predict():
     b = get_bundle()
     if not b:
-        return jsonify(error="Model belum dilatih. Jalankan: python pipeline.py all"), 503
-    f = request.files.get("image")
-    if not f or not f.filename:
-        return jsonify(error="Pilih berkas gambar terlebih dahulu."), 400
-    if os.path.splitext(f.filename)[1].lower() not in ALLOWED:
-        return jsonify(error="Format tidak didukung. Gunakan JPG, PNG, WEBP, atau BMP."), 400
+        return jsonify(error="Model belum dilatih. Jalankan: python pipeline.py run"), 503
+
+    payload = request.get_json(silent=True) or {}
+    x_coord = payload.get("x")
+    y_coord = payload.get("y")
+    features_input = payload.get("features", {})
+
+    if x_coord is None or y_coord is None:
+        return jsonify(error="Koordinat spasial X dan Y wajib diisi."), 400
+
     try:
-        img = ImageOps.exif_transpose(Image.open(f.stream)).convert("RGB")
-    except (UnidentifiedImageError, OSError):
-        return jsonify(error="Berkas tidak dapat dibaca sebagai gambar."), 400
+        x_val = float(x_coord)
+        y_val = float(y_coord)
+    except (ValueError, TypeError):
+        return jsonify(error="Koordinat X dan Y harus berupa angka numerik."), 400
 
-    scen = request.form.get("scenario") or b["best"]
-    if scen not in b["pipelines"]:
-        return jsonify(error="Skenario model tidak dikenal."), 400
-    pipe = b["pipelines"][scen]
-
-    x = P.extract_features(img).reshape(1, -1)
+    spec = b["spec"]
+    feature_names = spec["features"]
     
-    # Scale features
-    x_scaled = pipe.named_steps["scaler"].transform(x)
-    if "cluster" in pipe.named_steps:
-        x_scaled = pipe.named_steps["cluster"].transform(x_scaled)
-    
-    proba = pipe.predict_proba(x)[0]
-    names = [b["class_names"][b["class_ids"].index(c)] for c in pipe.classes_]
-    order = proba.argsort()[::-1]
-    probs = [{"label": names[i], "p": float(proba[i])} for i in order]
+    # Kumpulkan nilai prediktor
+    x_vec = []
+    for f in feature_names:
+        val = features_input.get(f)
+        if val is None:
+            # Fallback ke nilai median training
+            idx = feature_names.index(f)
+            val = float(np.median(b["X"][:, idx]))
+        try:
+            x_vec.append(float(val))
+        except (ValueError, TypeError):
+            x_vec.append(0.0)
 
-    cluster = None
-    if "cluster" in pipe.named_steps:
-        z = pipe.named_steps["scaler"].transform(x)
-        cluster = {"id": int(pipe.named_steps["cluster"].cluster_ids(z)[0]),
-                   "k": int(pipe.named_steps["cluster"].n_clusters)}
+    x_arr = np.array(x_vec)
 
-    # Feature breakdown untuk penjelasan
-    feat_dict = P.feature_dictionary()
-    feat_names = P.feature_names()
-    features = {}
-    for fam in ["warna", "intensitas", "tepi", "tekstur"]:
-        fam_feats = feat_dict[feat_dict["family"] == fam]
-        fam_values = {row["feature"]: float(x[0, feat_names.index(row["feature"])]) 
-                      for _, row in fam_feats.iterrows()}
-        features[fam] = {
-            "values": fam_values,
-            "summary": {
-                "mean": float(sum(fam_values.values()) / len(fam_values)) if fam_values else 0,
-                "max": float(max(fam_values.values())) if fam_values else 0,
-                "count": len(fam_values)
-            }
-        }
-    
-    # Explanation: kenapa dapet skor ini
-    explanation = {"method": scen}
-    clf = pipe.named_steps["clf"]
-    
-    if scen in ["A", "B"]:  # KNN
-        # Hitung distance ke semua training samples
-        from sklearn.neighbors import KNeighborsClassifier
-        if hasattr(clf, "kneighbors"):
-            distances, indices = clf.kneighbors(x_scaled)
-            neighbor_classes = clf._y[indices[0]]  # Classes of k-nearest neighbors
-            
-            # Count votes per class
-            class_votes = {}
-            for cls in pipe.classes_:
-                class_votes[names[list(pipe.classes_).index(cls)]] = int(sum(neighbor_classes == cls))
-            
-            # Get feature differences with neighbors
-            # Simplified: just show which features differ most
-            explanation["knn"] = {
-                "k": int(clf.n_neighbors),
-                "votes": class_votes,
-                "avg_distance": float(distances[0].mean()),
-                "closest_distance": float(distances[0].min()),
-                "farthest_distance": float(distances[0].max())
-            }
-    
-    elif scen in ["C", "D"]:  # Decision Tree
-        from sklearn.tree import DecisionTreeClassifier
-        if hasattr(clf, "tree_"):
-            # Get decision path
-            node_indicator = clf.decision_path(x_scaled)
-            leaf_id = clf.apply(x_scaled)[0]
-            
-            # Get feature importances from the tree
-            feature_importance = clf.feature_importances_
-            top_features_idx = feature_importance.argsort()[-5:][::-1]
-            
-            # Map back to original feature names (before cluster augmentation)
-            n_orig_features = len(feat_names)
-            top_features = []
-            for idx in top_features_idx:
-                if idx < n_orig_features:
-                    top_features.append({
-                        "name": feat_names[idx],
-                        "importance": float(feature_importance[idx])
-                    })
-            
-            # Get samples at leaf
-            n_samples_leaf = int(clf.tree_.n_node_samples[leaf_id])
-            
-            explanation["tree"] = {
-                "depth": int(clf.get_depth()),
-                "n_leaves": int(clf.get_n_leaves()),
-                "leaf_samples": n_samples_leaf,
-                "top_features": top_features,
-                "path_length": int(node_indicator.sum())
-            }
+    # 1. Prediksi Model Biasa (OLS)
+    ols_params = b["ols_params"]
+    pred_ols = float(ols_params[0] + np.dot(x_arr, ols_params[1:]))
 
-    w, h = img.size
-    warnings = []
-    if min(w, h) < P.CFG["min_side_px"] or w * h < P.CFG["min_area_px"]:
-        warnings.append("Crop sangat kecil; fitur visual dapat tidak stabil.")
-    if min(w, h) > 1000:
-        warnings.append("Gambar tampak seperti foto penuh. Model dilatih pada crop objek; "
-                        "hasil dapat keliru. Pangkas ke area objek.")
-    if probs[0]["p"] < 0.5:
-        warnings.append("Keyakinan rendah (< 50%). Perlakukan sebagai petunjuk awal saja.")
+    # 2. Prediksi Model GWR (Spatial Weighted Local Beta)
+    train_coords = b["coords"]
+    dists = np.sqrt((train_coords[:, 0] - x_val) ** 2 + (train_coords[:, 1] - y_val) ** 2)
+    min_dist = float(np.min(dists))
+    nearest_idx = int(np.argmin(dists))
 
-    return jsonify(label=probs[0]["label"], confidence=probs[0]["p"], probs=probs, scenario=scen,
-                   scenario_name=P.SCENARIOS[scen]["name"], cluster=cluster, size=[w, h],
-                   oof_macro_f1=b["oof_macro_f1"][scen], warnings=warnings, features=features,
-                   explanation=explanation,
-                   proba_note=("Untuk KNN, nilai ini adalah proporsi suara tetangga; untuk Decision Tree, "
-                               "proporsi kelas pada daun. Bukan probabilitas terkalibrasi."))
+    bw = b["gwr_bw"]
+    kernel = b.get("gwr_kernel", "bisquare")
+    adaptive = b.get("gwr_adaptive", True)
 
+    # Hitung bandwidth distance efektif
+    if adaptive:
+        # bw adalah jumlah nearest neighbors
+        k_neighbors = int(min(max(2, bw), len(train_coords)))
+        dists_sorted = np.sort(dists)
+        bw_dist = max(1e-5, dists_sorted[k_neighbors - 1])
+    else:
+        bw_dist = max(1e-5, bw)
 
-@app.errorhandler(413)
-def too_large(_):
-    return jsonify(error="Ukuran berkas melebihi 8 MB."), 413
+    # Hitung bobot kernel bisquare
+    u = dists / bw_dist
+    weights = np.zeros(len(dists))
+    mask = u < 1.0
+    if kernel == "bisquare":
+        weights[mask] = (1.0 - u[mask] ** 2) ** 2
+    else:  # gaussian
+        weights = np.exp(-0.5 * (dists / bw_dist) ** 2)
+
+    # Weighted Least Squares lokal
+    X_train = np.hstack([np.ones((len(b["X"]), 1)), b["X"]])
+    y_train = b["y"]
+
+    W_diag = np.sqrt(weights)
+    X_w = X_train * W_diag[:, np.newaxis]
+    y_w = y_train * W_diag[:, np.newaxis]
+
+    try:
+        XtX = np.dot(X_w.T, X_w)
+        # Ridge regularizer kecil untuk stabilitas numerik
+        XtX += np.eye(XtX.shape[0]) * 1e-6
+        XtY = np.dot(X_w.T, y_w)
+        local_betas = np.linalg.solve(XtX, XtY).flatten()
+    except Exception:
+        # Fallback ke nearest neighbor parameters jika matriks singular
+        points_data = get_spatial_points()
+        if nearest_idx < len(points_data):
+            local_betas = np.array([points_data[nearest_idx]["local_betas"]["Intercept"]] + 
+                                   [points_data[nearest_idx]["local_betas"][fn] for fn in feature_names])
+        else:
+            local_betas = ols_params
+
+    pred_gwr = float(local_betas[0] + np.dot(x_arr, local_betas[1:]))
+    delta_pred = pred_gwr - pred_ols
+
+    beta_breakdown = {
+        "Intercept": float(local_betas[0]),
+        **{fn: float(local_betas[i + 1]) for i, fn in enumerate(feature_names)}
+    }
+
+    ols_beta_breakdown = {
+        "Intercept": float(ols_params[0]),
+        **{fn: float(ols_params[i + 1]) for i, fn in enumerate(feature_names)}
+    }
+
+    return jsonify(
+        coordinates={"x": x_val, "y": y_val},
+        distance_to_nearest_observation=min_dist,
+        pred_ols=pred_ols,
+        pred_gwr=pred_gwr,
+        difference=delta_pred,
+        local_betas_gwr=beta_breakdown,
+        global_betas_ols=ols_beta_breakdown,
+        features_used={fn: float(x_arr[i]) for i, fn in enumerate(feature_names)},
+        target_name=spec["target"],
+        interpretation=f"Pada titik ({x_val:.1f}, {y_val:.1f}), Model GWR menghasilkan estimasi {pred_gwr:.2f} ({'+' if delta_pred >= 0 else ''}{delta_pred:.2f} dibanding Model Biasa) karena memperhitungkan karakteristik spasial lokal."
+    )
 
 
 if __name__ == "__main__":
-    app.run(debug=False, host="127.0.0.1", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5005))
+    print(f"[*] Menjalankan CivicScan di http://127.0.0.1:{port} (bebas dari konflik AirPlay port 5000)")
+    app.run(debug=False, host="127.0.0.1", port=port)

@@ -1,0 +1,22 @@
+% Tabel Komparasi Model Biasa (OLS) vs Model GWR
+% Dihasilkan otomatis oleh CivicScan Spatial Regression Engine
+\begin{table}[htbp]
+\centering
+\caption{Perbandingan Kinerja Model Biasa (OLS) dan Model GWR}
+\label{tab:ols_vs_gwr_comparison}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Metrik Evaluasi} & \textbf{Model Biasa (OLS)} & \textbf{Model GWR} & \textbf{Perubahan ($\Delta$)} \\
+\midrule
+Koefisien Determinasi ($R^2$) & 0.4853 & 0.5891 & +0.1039 (21.4\%) \\
+Adjusted $R^2$ & 0.4753 & 0.5480 & +0.0727 \\
+Akaike Information Criterion (AIC) & 905.93 & 892.82 & -13.10 \\
+Corrected AIC (AICc) & 906.32 & 896.35 & -9.97 \\
+Residual Sum of Squares (RSS) & 2639.56 & 2106.99 & -532.57 \\
+Uji Moran's I Residual (p-value) & 0.1022 (0.006) & 0.0113 (0.326) & Eliminasi Autokorelasi \\
+Bandwidth Optimal & - & 93.0 (Adaptive (Nearest Neighbors)) & - \\
+\midrule
+\textbf{Keputusan Model Terbaik} & \multicolumn{3}{c}{\textbf{GWR (Geographically Weighted Regression)}} \\
+\bottomrule
+\end{tabular}
+\end{table}

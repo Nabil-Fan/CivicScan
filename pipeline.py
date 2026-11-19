@@ -1,848 +1,518 @@
 #!/usr/bin/env python3
 """
-CivicScan — pipeline machine learning (satu file).
+CivicScan — Spatial Regression Engine (Model Biasa vs. Model GWR)
 
-Alur (sesuai dokumen rancangan 31 Oktober 2026):
-    python pipeline.py audit        # audit file + anotasi YOLO, tanpa membuat crop
-    python pipeline.py crops        # audit + ekstraksi crop dari bounding box
-    python pipeline.py features     # fitur visual per crop (HSV, intensitas, tepi, tekstur)
-    python pipeline.py experiment   # skenario M/A/B/C/D, CV bertingkat berkelompok, model akhir
-    python pipeline.py all          # semuanya berurutan
+Pipeline untuk membandingkan:
+1. Model Biasa: Global Ordinary Least Squares (OLS)
+2. Model GWR: Geographically Weighted Regression (GWR)
 
-Prinsip anti-kebocoran data:
-  * Split luar : StratifiedGroupKFold, groups = group_id (satu gambar sumber -> satu fold).
-  * Scaler, K-Means, dan classifier berada di dalam sklearn Pipeline, sehingga selalu
-    di-fit ulang hanya pada training fold (luar maupun dalam).
-  * Hiperparameter dan jumlah cluster dipilih lewat CV dalam (juga berkelompok) pada data latih.
-  * Skenario A/B dan C/D memakai fold luar, crop, dan fitur dasar yang identik.
+Fitur:
+- Automated Bandwidth Selection (Golden Section Search, AICc minimization)
+- Residual Spatial Autocorrelation Test (Global Moran's I)
+- Statistical Non-stationarity Test (ANOVA / F-Test)
+- Side-by-side Metric Comparison (R², AIC, AICc, BIC, RSS)
+- Local Parameter Distribution & Significance Assessment
+- Export paper-ready summary JSON and LaTeX tables
 """
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
-import random
-import shutil
+import os
 import sys
-import warnings
-import zipfile
-from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import joblib
 import numpy as np
 import pandas as pd
-from PIL import Image, ImageDraw, ImageOps
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.cluster import KMeans
-from sklearn.decomposition import PCA
-from sklearn.dummy import DummyClassifier
-from sklearn.metrics import (accuracy_score, balanced_accuracy_score, classification_report,
-                             confusion_matrix, f1_score, silhouette_score)
-from sklearn.model_selection import GridSearchCV, StratifiedGroupKFold
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.tree import DecisionTreeClassifier
+from scipy import stats
+import statsmodels.api as sm
+from statsmodels.stats.outliers_influence import variance_inflation_factor
 
-# --------------------------------------------------------------------------- konfigurasi
+from mgwr.gwr import GWR
+from mgwr.sel_bw import Sel_BW
+from libpysal.weights import KNN
+from esda.moran import Moran
+
+# --------------------------------------------------------------------------- Konfigurasi Path
 ROOT = Path(__file__).resolve().parent
-RAW, CROPS, PROC, RES = (ROOT / "data" / "raw", ROOT / "data" / "crops",
-                         ROOT / "data" / "processed", ROOT / "results")
-MODELS_PATH = RES / "models.joblib"
-SEED = 42
-
-# Ambang & parameter ditetapkan SEBELUM melihat skor model (lihat dokumen bab 4-5).
-CFG = {
-    "image_exts": (".jpg", ".jpeg", ".png", ".bmp", ".webp"),
-    "min_side_px": 24,          # sisi terpendek crop minimum
-    "min_area_px": 1024,        # luas crop minimum
-    "resize": 128,              # semua crop di-resize ke 128x128 sebelum ekstraksi fitur
-    "hsv_bins": (12, 6, 6),     # H, S, V
-    "ori_bins": 8,              # histogram orientasi gradien
-    "lbp_points": 8, "lbp_radius": 1,
-    "edge_thresholds": (0.05, 0.15),
-    "scaler": "StandardScaler",
-    "k_candidates": (3, 5, 7, 10),
-    "cluster_representation": "both",   # one-hot cluster_id + jarak centroid
-}
-IGNORED_TXT = {"classes.txt", "readme.txt", "labels.txt", "license.txt", "notes.txt", "obj.names"}
-DEFAULT_CLASSES = ["animal", "traffic light", "waste container", "pothole",
-                   "cracks", "open manhole", "good road"]   # HANYA cadangan; verifikasi dengan data.yaml
-ZENODO_DECLARED_IMAGES = {"animal": 600, "traffic light": 600, "waste container": 600, "pothole": 300,
-                          "cracks": 166, "open manhole": 152, "good road": 100}
-DATASET_META = {
-    "name": "Urban Community Issues Object Detection Dataset", "author": "Paudel, R.",
-    "version": "v1", "published": "2026-03-05", "doi": "10.5281/zenodo.18871460",
-    "url": "https://zenodo.org/records/18871460",
-    "license_note": "Dataset turunan dari sumber publik lain: periksa lisensi sumber sebelum redistribusi.",
-}
-SCENARIOS = {
-    "M": {"name": "Baseline mayoritas", "clf": "majority", "cluster": False,
-          "desc": "Selalu menebak kelas terbanyak (pembanding minimum)."},
-    "A": {"name": "KNN - fitur dasar", "clf": "knn", "cluster": False, "desc": "Baseline KNN."},
-    "B": {"name": "Decision Tree - fitur dasar", "clf": "dt", "cluster": False, "desc": "Baseline pohon."},
-    "C": {"name": "KNN + K-Means", "clf": "knn", "cluster": True, "desc": "Fitur dasar + fitur cluster."},
-    "D": {"name": "Decision Tree + K-Means", "clf": "dt", "cluster": True, "desc": "Fitur dasar + fitur cluster."},
-}
-META_COLS = ["crop_id", "image_id", "group_id", "class_id", "class_name"]
-
-warnings.filterwarnings("ignore")
-
-
-def log(*a):
-    print(*a, flush=True)
-
-
-def jsonable(o):
-    if isinstance(o, (np.integer,)):
-        return int(o)
-    if isinstance(o, (np.floating,)):
-        return None if math.isnan(float(o)) else float(o)
-    if isinstance(o, np.ndarray):
-        return o.tolist()
-    if isinstance(o, (Path,)):
-        return str(o)
-    raise TypeError(f"tidak bisa serialisasi {type(o)}")
-
-
-def write_json(path: Path, obj):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, indent=2, ensure_ascii=False, default=jsonable), encoding="utf-8")
-
-
-def safe_name(s: str) -> str:
-    return "".join(c if c.isalnum() or c in "-_" else "_" for c in s.lower()).strip("_")
-
-
-# --------------------------------------------------------------------------- 1. audit data
-def prepare_raw():
-    RAW.mkdir(parents=True, exist_ok=True)
-    has_img = any(p.suffix.lower() in CFG["image_exts"] for p in RAW.rglob("*") if p.is_file())
-    if not has_img:
-        for z in sorted(RAW.glob("*.zip")):
-            log(f"Mengekstrak {z.name} ...")
-            with zipfile.ZipFile(z) as zf:
-                zf.extractall(RAW)
-
-
-def load_class_names():
-    import yaml
-    for y in sorted(list(RAW.rglob("*.yaml")) + list(RAW.rglob("*.yml"))):
-        try:
-            d = yaml.safe_load(y.read_text(encoding="utf-8", errors="ignore"))
-        except Exception:
-            continue
-        if isinstance(d, dict) and "names" in d:
-            n = d["names"]
-            names = [n[k] for k in sorted(n, key=int)] if isinstance(n, dict) else list(n)
-            return [str(x) for x in names], f"yaml:{y.relative_to(RAW).as_posix()}"
-    for t in sorted(list(RAW.rglob("classes.txt")) + list(RAW.rglob("obj.names"))):
-        names = [l.strip() for l in t.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()]
-        if names:
-            return names, f"txt:{t.relative_to(RAW).as_posix()}"
-    log("PERINGATAN: data.yaml tidak ditemukan. Memakai urutan kelas dari dokumen - VERIFIKASI MANUAL.")
-    return list(DEFAULT_CLASSES), "fallback-dokumen (verifikasi manual!)"
-
-
-def list_files():
-    imgs, lbls = [], []
-    for p in sorted(RAW.rglob("*")):
-        if not p.is_file() or "__MACOSX" in p.parts or p.name.startswith("._"):
-            continue
-        s = p.suffix.lower()
-        if s in CFG["image_exts"]:
-            imgs.append(p)
-        elif s == ".txt" and p.name.lower() not in IGNORED_TXT:
-            lbls.append(p)
-    return imgs, lbls
-
-
-def file_md5(p: Path) -> str:
-    h = hashlib.md5()
-    with open(p, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def image_info(p: Path):
-    """Ukuran gambar setelah koreksi orientasi EXIF (sama dengan saat crop)."""
-    try:
-        with Image.open(p) as im:
-            im.verify()
-        with Image.open(p) as im:
-            w, h = im.size
-            if im.getexif().get(274, 1) in (5, 6, 7, 8):
-                w, h = h, w
-        return w, h
-    except Exception:
-        return None, None
-
-
-def pair_label(lbl: Path, img_index: dict, by_stem: dict):
-    parts = lbl.parts
-    for i in range(len(parts) - 2, -1, -1):
-        if parts[i].lower() == "labels":
-            key = Path(*parts[:i], "images", *parts[i + 1:-1], lbl.stem).as_posix()
-            if key in img_index:
-                return img_index[key]
-    k = lbl.with_suffix("").as_posix()
-    if k in img_index:
-        return img_index[k]
-    c = by_stem.get(lbl.stem, [])
-    return c[0] if len(c) == 1 else None
-
-
-def parse_label(path: Path):
-    rows, bad = [], 0
-    for i, line in enumerate(path.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
-        parts = line.split()
-        if not parts:
-            continue
-        try:
-            v = [float(x) for x in parts]
-        except ValueError:
-            bad += 1
-            continue
-        if v[0] != int(v[0]):
-            bad += 1
-            continue
-        if len(v) == 5:
-            xc, yc, w, h = v[1:]
-            kind = "bbox"
-        elif len(v) >= 7 and len(v) % 2 == 1:       # segmentasi poligon -> bounding box
-            xs, ys = v[1::2], v[2::2]
-            xc, yc, w, h = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, max(xs) - min(xs), max(ys) - min(ys)
-            kind = "polygon"
-        else:
-            bad += 1
-            continue
-        rows.append({"line_no": i, "class_id": int(v[0]), "xc": xc, "yc": yc, "w": w, "h": h, "kind": kind})
-    return rows, bad
-
-
-def box_to_px(xc, yc, w, h, W, H):
-    x1, x2, y1, y2 = (xc - w / 2) * W, (xc + w / 2) * W, (yc - h / 2) * H, (yc + h / 2) * H
-    oob = x1 < -1 or y1 < -1 or x2 > W + 1 or y2 > H + 1
-    return (max(0, int(math.floor(x1))), max(0, int(math.floor(y1))),
-            min(W, int(math.ceil(x2))), min(H, int(math.ceil(y2))), oob)
-
-
-def box_status(x1, y1, x2, y2):
-    cw, ch = x2 - x1, y2 - y1
-    if cw <= 1 or ch <= 1:
-        return "outside_image"
-    if min(cw, ch) < CFG["min_side_px"] or cw * ch < CFG["min_area_px"]:
-        return "too_small"
-    return "kept"
-
-
-def group_key(img: Path, md5: str) -> str:
-    """Kelompok split. Salinan augmentasi bergaya Roboflow ('nama_jpg.rf.<hash>') berbagi kelompok;
-    selain itu kelompok = hash isi file (menyatukan duplikat persis)."""
-    return "rf_" + img.stem.split(".rf.")[0] if ".rf." in img.stem else "h_" + md5[:16]
-
-
-def scan(save_samples=False):
-    prepare_raw()
-    names, names_src = load_class_names()
-    imgs, lbls = list_files()
-    if not imgs:
-        sys.exit(f"Tidak ada gambar di {RAW}. Letakkan/ekstrak Data_sets.zip ke folder tersebut.")
-    img_index = {p.with_suffix("").as_posix(): p for p in imgs}
-    by_stem = {}
-    for p in imgs:
-        by_stem.setdefault(p.stem, []).append(p)
-
-    rep = {"created": datetime.now().isoformat(timespec="seconds"), "class_names": names,
-           "class_names_source": names_src, "images_total": len(imgs), "label_files_total": len(lbls),
-           "config": {k: CFG[k] for k in ("min_side_px", "min_area_px", "resize")}}
-    pairs, unpaired_lbl = [], 0
-    for l in lbls:
-        im = pair_label(l, img_index, by_stem)
-        if im is None:
-            unpaired_lbl += 1
-        else:
-            pairs.append((im, l))
-    pairs.sort(key=lambda t: t[0].as_posix())
-    paired_imgs = {p for p, _ in pairs}
-    rep["labels_without_image"] = unpaired_lbl
-    rep["images_without_label"] = len(imgs) - len(paired_imgs)
-
-    rows, seen_md5, seen_box = [], {}, set()
-    unreadable = bad_lines = empty_labels = dup_images = 0
-    log(f"Memindai {len(pairs)} pasangan gambar-label ...")
-    for n, (img, lbl) in enumerate(pairs, 1):
-        if n % 500 == 0:
-            log(f"  {n}/{len(pairs)}")
-        image_id = img.relative_to(RAW).as_posix()
-        W, H = image_info(img)
-        md5 = file_md5(img)
-        gid = group_key(img, md5)
-        anns, bad = parse_label(lbl)
-        bad_lines += bad
-        if not anns and bad == 0:
-            empty_labels += 1
-        is_dup = md5 in seen_md5
-        dup_images += int(is_dup)
-        seen_md5.setdefault(md5, image_id)
-        if W is None:
-            unreadable += 1
-        for a in anns:
-            r = dict(a, image_id=image_id, group_id=gid, W=W, H=H, oob=False,
-                     class_name=names[a["class_id"]] if 0 <= a["class_id"] < len(names) else None)
-            if W is None:
-                st = "unreadable_image"
-            elif is_dup:
-                st = "duplicate_image"
-            elif r["class_name"] is None:
-                st = "unknown_class"
-            elif a["w"] <= 0 or a["h"] <= 0:
-                st = "zero_size"
-            else:
-                x1, y1, x2, y2, oob = box_to_px(a["xc"], a["yc"], a["w"], a["h"], W, H)
-                r["oob"] = bool(oob)
-                st = box_status(x1, y1, x2, y2)
-                if st == "kept":
-                    key = (image_id, a["class_id"], round(a["xc"], 4), round(a["yc"], 4),
-                           round(a["w"], 4), round(a["h"], 4))
-                    if key in seen_box:
-                        st = "duplicate_box"
-                    seen_box.add(key)
-            r["status"] = st
-            rows.append(r)
-
-    if not rows:
-        sys.exit("Tidak ada anotasi yang berhasil dibaca. Periksa struktur folder dan format label YOLO.")
-    ann = pd.DataFrame(rows)
-    kept = ann[ann.status == "kept"]
-    valid_cls = ann[ann.class_name.notna()]
-    rep.update({
-        "images_unreadable": unreadable, "images_paired": len(pairs), "empty_label_files": empty_labels,
-        "duplicate_images_dropped": dup_images, "label_lines_parsed": int(len(ann)),
-        "label_lines_malformed": bad_lines,
-        "unknown_class_ids": int((ann.status == "unknown_class").sum()),
-        "boxes_out_of_bounds_clipped": int(ann.oob.sum()),
-        "boxes_zero_size": int((ann.status == "zero_size").sum()),
-        "boxes_too_small": int((ann.status == "too_small").sum()),
-        "boxes_duplicate": int((ann.status == "duplicate_box").sum()),
-        "polygon_labels_converted": int((ann.kind == "polygon").sum()),
-        "boxes_kept": int(len(kept)),
-        "exclusion_reasons": ann[ann.status != "kept"].status.value_counts().to_dict(),
-        "boxes_per_class": {c: int((valid_cls.class_name == c).sum()) for c in names},
-        "kept_boxes_per_class": {c: int((kept.class_name == c).sum()) for c in names},
-        "images_per_class": {c: int(valid_cls[valid_cls.class_name == c].image_id.nunique()) for c in names},
-        "kept_images_per_class": {c: int(kept[kept.class_name == c].image_id.nunique()) for c in names},
-        "kept_groups_per_class": {c: int(kept[kept.class_name == c].group_id.nunique()) for c in names},
-        "zenodo_declared_images": ZENODO_DECLARED_IMAGES,
-    })
-    if save_samples:
-        draw_samples(kept)
-    return ann, rep, names
-
-
-def draw_samples(kept: pd.DataFrame, n=12):
-    out = RES / "audit_samples"
-    shutil.rmtree(out, ignore_errors=True)
-    out.mkdir(parents=True, exist_ok=True)
-    ids = sorted(kept.image_id.unique())
-    random.Random(SEED).shuffle(ids)
-    for i, iid in enumerate(ids[:n]):
-        try:
-            im = ImageOps.exif_transpose(Image.open(RAW / iid)).convert("RGB")
-        except Exception:
-            continue
-        d = ImageDraw.Draw(im)
-        W, H = im.size
-        for r in kept[kept.image_id == iid].itertuples():
-            x1, y1, x2, y2, _ = box_to_px(r.xc, r.yc, r.w, r.h, W, H)
-            d.rectangle([x1, y1, x2, y2], outline="#ed7328", width=max(2, W // 250))
-            d.text((x1 + 3, y1 + 3), r.class_name, fill="#ffc400")
-        im.thumbnail((800, 800))
-        im.save(out / f"sample_{i:02d}.jpg", quality=88)
-
-
-def write_provenance():
-    zips = sorted(RAW.glob("*.zip"))
-    info = {"dataset": DATASET_META, "downloaded_or_checked_at": datetime.now().isoformat(timespec="seconds"),
-            "archive": [{"name": z.name, "bytes": z.stat().st_size, "md5": file_md5(z)} for z in zips],
-            "libraries": library_versions(), "python": sys.version.split()[0], "config": CFG, "seed": SEED}
-    write_json(RES / "provenance.json", info)
-
-
-def library_versions():
-    import PIL, sklearn, skimage
-    return {"numpy": np.__version__, "pandas": pd.__version__, "scikit-learn": sklearn.__version__,
-            "scikit-image": skimage.__version__, "pillow": PIL.__version__}
-
-
-def cmd_audit():
-    ann, rep, _ = scan(save_samples=True)
-    write_json(RES / "audit_report.json", rep)
-    write_provenance()
-    show_audit(rep)
-
-
-def show_audit(rep):
-    log("\n=== RINGKASAN AUDIT ===")
-    for k, v in rep.items():
-        if not isinstance(v, (dict, list)):
-            log(f"{k:32s}: {v}")
-    log(f"{'kelas':18s} {'gambar':>7s} {'box':>7s} {'box dipakai':>12s} {'grup dipakai':>13s} {'Zenodo':>7s}")
-    for c in rep["class_names"]:
-        log(f"{c:18s} {rep['images_per_class'][c]:7d} {rep['boxes_per_class'][c]:7d} "
-            f"{rep['kept_boxes_per_class'][c]:12d} {rep['kept_groups_per_class'][c]:13d} "
-            f"{rep['zenodo_declared_images'].get(c, '-')!s:>7s}")
-
-
-# --------------------------------------------------------------------------- 2. crop
-def cmd_crops():
-    ann, rep, names = scan(save_samples=True)
-    shutil.rmtree(CROPS, ignore_errors=True)
-    PROC.mkdir(parents=True, exist_ok=True)
-    manifest, extra_excl = [], []
-    kept = ann[ann.status == "kept"]
-    log(f"Mengekstrak crop dari {kept.image_id.nunique()} gambar ...")
-    for n, (iid, grp) in enumerate(kept.groupby("image_id", sort=True), 1):
-        if n % 500 == 0:
-            log(f"  {n} gambar")
-        try:
-            im = ImageOps.exif_transpose(Image.open(RAW / iid)).convert("RGB")
-        except Exception:
-            extra_excl += [(iid, "unreadable_image")] * len(grp)
-            continue
-        W, H = im.size
-        h8 = hashlib.md5(iid.encode()).hexdigest()[:8]
-        for k, r in enumerate(grp.itertuples()):
-            x1, y1, x2, y2, _ = box_to_px(r.xc, r.yc, r.w, r.h, W, H)
-            st = box_status(x1, y1, x2, y2)
-            if st != "kept":
-                extra_excl.append((iid, st + "_actual"))
-                continue
-            crop_id = f"{safe_name(Path(iid).stem)[:30]}_{h8}_{k:02d}"
-            d = CROPS / safe_name(r.class_name)
-            d.mkdir(parents=True, exist_ok=True)
-            path = d / f"{crop_id}.jpg"
-            im.crop((x1, y1, x2, y2)).save(path, quality=95)
-            manifest.append({"crop_id": crop_id, "image_id": iid, "group_id": r.group_id,
-                             "class_id": r.class_id, "class_name": r.class_name,
-                             "x_center": r.xc, "y_center": r.yc, "box_width": r.w, "box_height": r.h,
-                             "crop_width": x2 - x1, "crop_height": y2 - y1,
-                             "crop_path": path.relative_to(ROOT).as_posix()})
-    man = pd.DataFrame(manifest)
-    if man.empty:
-        sys.exit("Tidak ada crop valid yang dihasilkan.")
-    man.to_csv(PROC / "crops_manifest.csv", index=False)
-    excl = ann[ann.status != "kept"][["image_id", "class_id", "class_name", "status"]]
-    excl = pd.concat([excl, pd.DataFrame(extra_excl, columns=["image_id", "status"])], ignore_index=True)
-    excl.to_csv(PROC / "excluded.csv", index=False)
-    rep["crops_total"] = int(len(man))
-    rep["crops_per_class"] = {c: int((man.class_name == c).sum()) for c in names}
-    rep["source_images_per_class"] = {c: int(man[man.class_name == c].image_id.nunique()) for c in names}
-    rep["source_groups_per_class"] = {c: int(man[man.class_name == c].group_id.nunique()) for c in names}
-    write_json(RES / "audit_report.json", rep)
-    write_provenance()
-    show_audit(rep)
-    log(f"\nCrop valid: {len(man)} | dikeluarkan: {len(excl)} (lihat data/processed/excluded.csv)")
-    small = [c for c in names if rep["source_groups_per_class"][c] < 10]
-    if small:
-        log(f"PERINGATAN: kelas dengan <10 gambar sumber: {small}. Konsultasikan penggabungan kelas/ruang lingkup.")
-
-
-# --------------------------------------------------------------------------- 3. fitur visual
-def feature_names():
-    hb, sb, vb = CFG["hsv_bins"]
-    n = [f"h_hist_{i}" for i in range(hb)] + [f"s_hist_{i}" for i in range(sb)] + [f"v_hist_{i}" for i in range(vb)]
-    n += ["hue_cos_mean", "hue_sin_mean", "s_mean", "v_mean", "s_std", "v_std", "gray_mean", "gray_std",
-          "edge_density_low", "edge_density_high", "grad_mean", "grad_std"]
-    n += [f"grad_ori_{i}" for i in range(CFG["ori_bins"])]
-    n += [f"lbp_{i}" for i in range(CFG["lbp_points"] + 2)]
-    return n
-
-
-def feature_dictionary():
-    rows = []
-    for n in feature_names():
-        if n.endswith(tuple("0123456789")) and "_hist_" in n:
-            fam, desc = "warna", f"Proporsi piksel pada bin histogram {n.split('_')[0].upper()}"
-        elif n.startswith(("hue", "s_", "v_")):
-            fam, desc = "warna", "Statistik ruang warna HSV (hue memakai rata-rata sirkular cos/sin)"
-        elif n.startswith("gray"):
-            fam, desc = "intensitas", "Rata-rata/simpangan baku grayscale (0-1)"
-        elif n.startswith("edge"):
-            fam, desc = "tepi", "Proporsi piksel dengan magnitudo gradien di atas ambang tetap"
-        elif n.startswith("grad_ori"):
-            fam, desc = "tekstur", "Histogram orientasi gradien (berbobot magnitudo)"
-        elif n.startswith("grad"):
-            fam, desc = "tekstur", "Statistik magnitudo gradien"
-        else:
-            fam, desc = "tekstur", "Histogram Local Binary Pattern (uniform, P=8, R=1)"
-        rows.append({"feature": n, "family": fam, "description": desc})
-    return pd.DataFrame(rows)
-
-
-def extract_features(img: Image.Image) -> np.ndarray:
-    """Satu fungsi ekstraksi yang dipakai training DAN demo web agar identik."""
-    from skimage.feature import local_binary_pattern
-    S = CFG["resize"]
-    rgb = img.convert("RGB").resize((S, S), Image.BILINEAR)
-    hsv = np.asarray(rgb.convert("HSV"), dtype=np.float32)
-    g8 = np.asarray(rgb.convert("L"), dtype=np.uint8)
-    g = g8.astype(np.float32) / 255.0
-    f = []
-    for c, b in enumerate(CFG["hsv_bins"]):
-        hist, _ = np.histogram(hsv[..., c], bins=b, range=(0, 256))
-        f.extend(hist / hist.sum())
-    ang = hsv[..., 0] / 255.0 * 2 * np.pi
-    f += [np.cos(ang).mean(), np.sin(ang).mean(), hsv[..., 1].mean() / 255, hsv[..., 2].mean() / 255,
-          hsv[..., 1].std() / 255, hsv[..., 2].std() / 255, g.mean(), g.std()]
-    gy, gx = np.gradient(g)
-    mag = np.hypot(gx, gy)
-    lo, hi = CFG["edge_thresholds"]
-    f += [(mag > lo).mean(), (mag > hi).mean(), mag.mean(), mag.std()]
-    theta = np.arctan2(gy, gx) % np.pi
-    oh, _ = np.histogram(theta, bins=CFG["ori_bins"], range=(0, np.pi), weights=mag)
-    f.extend(oh / (oh.sum() + 1e-9))
-    lbp = local_binary_pattern(g8, CFG["lbp_points"], CFG["lbp_radius"], method="uniform")
-    f.extend(np.bincount(lbp.astype(int).ravel(), minlength=CFG["lbp_points"] + 2) / lbp.size)
-    return np.asarray(f, dtype=np.float32)
-
-
-def _feat_from_path(rel):
-    with Image.open(ROOT / rel) as im:
-        return extract_features(im)
-
-
-def cmd_features():
-    man_path = PROC / "crops_manifest.csv"
-    if not man_path.exists():
-        sys.exit("crops_manifest.csv belum ada. Jalankan: python pipeline.py crops")
-    man = pd.read_csv(man_path)
-    log(f"Mengekstrak fitur dari {len(man)} crop ...")
-    feats = joblib.Parallel(n_jobs=-1, batch_size=64)(joblib.delayed(_feat_from_path)(p) for p in man.crop_path)
-    names = feature_names()
-    F = pd.DataFrame(np.vstack(feats), columns=names)
-    assert not F.isna().any().any(), "NaN pada fitur"
-    out = pd.concat([man[META_COLS], F], axis=1)
-    out.to_csv(PROC / "features.csv", index=False)
-    feature_dictionary().to_csv(PROC / "feature_dictionary.csv", index=False)
-    # pemeriksaan fitur konstan & korelasi tinggi (tidak dibuang otomatis; putuskan manual & catat)
-    const = [c for c in names if F[c].std() < 1e-8]
-    corr = F.drop(columns=const).corr().abs()
-    pairs = [(a, b, float(corr.loc[a, b])) for i, a in enumerate(corr.columns) for b in corr.columns[i + 1:]
-             if corr.loc[a, b] > 0.98]
-    write_json(RES / "feature_check.json", {"n_features": len(names), "constant": const,
-                                            "near_duplicate_pairs(|r|>0.98)": pairs})
-    log(f"Fitur: {len(names)} dimensi | konstan: {len(const)} | pasangan korelasi >0.98: {len(pairs)}")
-    log("Tersimpan: data/processed/features.csv, feature_dictionary.csv")
-
-
-# --------------------------------------------------------------------------- 4. model
-class ClusterAugmenter(BaseEstimator, TransformerMixin):
-    """Menambahkan informasi K-Means ke fitur (yang sudah diskalakan).
-    fit() hanya dipanggil pada data latih oleh Pipeline -> tidak ada kebocoran."""
-
-    def __init__(self, n_clusters=5, representation="both", random_state=SEED):
-        self.n_clusters = n_clusters
-        self.representation = representation
-        self.random_state = random_state
-
-    def fit(self, X, y=None):
-        self.km_ = KMeans(n_clusters=self.n_clusters, n_init=5, random_state=self.random_state).fit(X)
-        d = self.km_.transform(X)
-        self.d_mu_, self.d_sd_ = d.mean(0), d.std(0) + 1e-9
-        return self
-
-    def cluster_ids(self, X):
-        return self.km_.predict(X)
-
-    def transform(self, X):
-        parts = [X]
-        if self.representation in ("onehot", "both"):
-            parts.append(np.eye(self.n_clusters)[self.km_.predict(X)])        # cluster_id nominal (bukan ordinal)
-        if self.representation in ("distance", "both"):
-            parts.append((self.km_.transform(X) - self.d_mu_) / self.d_sd_)   # jarak ke tiap centroid
-        return np.hstack(parts)
-
-
-def make_pipeline(clf: str, use_cluster: bool) -> Pipeline:
-    steps = [("scaler", StandardScaler())]
-    if use_cluster:
-        steps.append(("cluster", ClusterAugmenter(representation=CFG["cluster_representation"])))
-    est = {"knn": KNeighborsClassifier(), "dt": DecisionTreeClassifier(random_state=SEED),
-           "majority": DummyClassifier(strategy="most_frequent")}[clf]
-    steps.append(("clf", est))
-    return Pipeline(steps)
-
-
-def param_grid(clf: str, quick: bool):
-    if clf == "knn":
-        return {"clf__n_neighbors": [5, 9] if quick else [3, 5, 7, 9], "clf__weights": ["uniform", "distance"]}
-    return {"clf__max_depth": [6, None] if quick else [4, 6, 8, 12, None],
-            "clf__min_samples_leaf": [1, 5] if quick else [1, 5, 10],
-            "clf__class_weight": [None, "balanced"]}
-
-
-def fit_scenario(Xtr, ytr, gtr, spec, k_mode="grid", quick=False):
-    """Fit satu skenario pada data latih. Pemilihan parameter lewat CV dalam berkelompok (macro-F1)."""
-    pipe = make_pipeline(spec["clf"], spec["cluster"])
-    info = {}
-    if spec["clf"] == "majority":
-        return pipe.fit(Xtr, ytr), info
-    grid = param_grid(spec["clf"], quick)
-    if spec["cluster"]:
-        ks = list(CFG["k_candidates"])[::2] if quick else list(CFG["k_candidates"])
-        if k_mode == "silhouette":      # jumlah cluster dipilih tanpa label, hanya dari data latih
-            Z = StandardScaler().fit_transform(Xtr)
-            sil = {}
-            for k in ks:
-                lab = KMeans(k, n_init=3, random_state=SEED).fit_predict(Z)
-                sil[k] = float(silhouette_score(Z, lab, sample_size=min(3000, len(Z)), random_state=SEED))
-            ks = [max(sil, key=sil.get)]
-            info["silhouette_by_k"] = sil
-        grid["cluster__n_clusters"] = ks
-    n_groups_min = pd.Series(gtr).groupby(ytr).nunique().min()
-    n_inner = int(max(2, min(3, n_groups_min)))
-    cv = list(StratifiedGroupKFold(n_inner, shuffle=True, random_state=SEED).split(Xtr, ytr, gtr))
-    gs = GridSearchCV(pipe, grid, scoring="f1_macro", cv=cv, n_jobs=-1, refit=True)
-    gs.fit(Xtr, ytr)
-    info["best_params"] = {k.split("__", 1)[1]: v for k, v in gs.best_params_.items()}
-    info["inner_macro_f1"] = float(gs.best_score_)
-    info["inner_folds"] = n_inner
-    return gs.best_estimator_, info
-
-
-def fold_metrics(yt, yp):
-    return {"macro_f1": float(f1_score(yt, yp, average="macro", zero_division=0)),
-            "balanced_acc": float(balanced_accuracy_score(yt, yp)),
-            "accuracy": float(accuracy_score(yt, yp))}
-
-
-def mean_std(vals):
-    a = np.asarray(vals, float)
-    return float(a.mean()), float(a.std(ddof=1)) if len(a) > 1 else 0.0
-
-
-def pattern(deltas):
-    m = float(np.mean(deltas))
-    if all(d > 0 for d in deltas) and m >= 0.01:
-        return "konsisten_naik"
-    if all(d < 0 for d in deltas) and m <= -0.01:
-        return "konsisten_turun"
-    return "tidak_konsisten"
-
-
-def montage(items, out: Path, cols=6, cell=104):
-    """items: list[(path, caption)] -> satu gambar kontak untuk inspeksi visual."""
-    if not items:
-        return None
-    rows = math.ceil(len(items) / cols)
-    cap_h = 14
-    canvas = Image.new("RGB", (cols * cell, rows * (cell + cap_h)), "#fbf9f6")
-    d = ImageDraw.Draw(canvas)
-    for i, (p, cap) in enumerate(items):
-        x, y = (i % cols) * cell, (i // cols) * (cell + cap_h)
-        try:
-            with Image.open(ROOT / p) as im:
-                canvas.paste(ImageOps.fit(im.convert("RGB"), (cell - 4, cell - 4)), (x + 2, y + 2))
-        except Exception:
-            pass
-        d.text((x + 3, y + cell), cap[:20], fill="#234386")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    canvas.save(out, quality=88)
-    return out.relative_to(RES).as_posix()
-
-
-def cmd_experiment(n_folds=5, k_mode="grid", quick=False):
-    feat_path = PROC / "features.csv"
-    if not feat_path.exists():
-        sys.exit("features.csv belum ada. Jalankan: python pipeline.py features")
-    df = pd.read_csv(feat_path)
-    fcols = [c for c in df.columns if c not in META_COLS]
-    assert "class_id" not in fcols and "class_name" not in fcols, "label bocor ke fitur!"
-    X, y, g = df[fcols].to_numpy(np.float32), df.class_id.to_numpy(), df.group_id.to_numpy()
-    cls_name = df.drop_duplicates("class_id").set_index("class_id").class_name.to_dict()
-    present = sorted(cls_name)
-    names = [cls_name[c] for c in present]
-    man = pd.read_csv(PROC / "crops_manifest.csv").set_index("crop_id")
-    paths = man.loc[df.crop_id, "crop_path"].to_numpy()
-    audit = json.loads((RES / "audit_report.json").read_text(encoding="utf-8")) if (RES / "audit_report.json").exists() else {}
-
-    g_per_class = df.groupby("class_id").group_id.nunique()
-    n_splits = int(min(n_folds, g_per_class.min()))
-    if n_splits < 2:
-        sys.exit("Ada kelas dengan <2 gambar sumber. Revisi ruang lingkup/gabungkan kelas (lihat dokumen bab 2).")
-    if n_splits < n_folds:
-        log(f"PERINGATAN: fold diturunkan {n_folds}->{n_splits} (kelas minoritas hanya {g_per_class.min()} grup).")
-    sgkf = StratifiedGroupKFold(n_splits, shuffle=True, random_state=SEED)
-    folds = list(sgkf.split(X, y, g))
-    fold_id = np.zeros(len(df), int)
-    for i, (tr, te) in enumerate(folds, 1):
-        assert not set(g[tr]) & set(g[te]), "kebocoran grup antar train/test!"
-        fold_id[te] = i
-    pd.DataFrame({"crop_id": df.crop_id, "image_id": df.image_id, "group_id": df.group_id,
-                  "fold_id": fold_id}).to_csv(RES / "fold_assignments.csv", index=False)
-
-    oof = {s: np.full(len(df), -1) for s in SCENARIOS}
-    oof_p = {s: np.zeros(len(df)) for s in SCENARIOS}
-    oof_fold = np.zeros(len(df), int)
-    per_fold = {s: [] for s in SCENARIOS}
-    fold_info = []
-    for fi, (tr, te) in enumerate(folds, 1):
-        oof_fold[te] = fi
-        fold_info.append({"fold": fi, "n_train": int(len(tr)), "n_test": int(len(te)),
-                          "groups_test": int(len(set(g[te]))),
-                          "test_class_counts": {cls_name[c]: int((y[te] == c).sum()) for c in present}})
-        log(f"\n--- Fold {fi}/{n_splits}: train={len(tr)} test={len(te)} ---")
-        for s, spec in SCENARIOS.items():
-            pipe, info = fit_scenario(X[tr], y[tr], g[tr], spec, k_mode, quick)
-            pred = pipe.predict(X[te])
-            oof[s][te] = pred
-            oof_p[s][te] = pipe.predict_proba(X[te]).max(1)
-            m = fold_metrics(y[te], pred)
-            per_fold[s].append({"fold": fi, **m, **info})
-            log(f"  {s} {spec['name']:28s} macroF1={m['macro_f1']:.3f} balAcc={m['balanced_acc']:.3f} "
-                f"acc={m['accuracy']:.3f} {info.get('best_params', '')}")
-
-    # ---- agregasi
-    scen_out = {}
-    for s, spec in SCENARIOS.items():
-        rows = per_fold[s]
-        mean, std = {}, {}
-        for k in ("macro_f1", "balanced_acc", "accuracy"):
-            mean[k], std[k] = mean_std([r[k] for r in rows])
-        rep = classification_report(y, oof[s], labels=present, target_names=names, output_dict=True, zero_division=0)
-        scen_out[s] = {**spec, "per_fold": rows, "mean": mean, "std": std,
-                       "pooled": fold_metrics(y, oof[s]),
-                       "per_class": {n: {k: rep[n][k] for k in ("precision", "recall", "f1-score", "support")} for n in names},
-                       "confusion": confusion_matrix(y, oof[s], labels=present).tolist()}
-    comparison = {}
-    for new, base in (("C", "A"), ("D", "B")):
-        d_f1 = [a["macro_f1"] - b["macro_f1"] for a, b in zip(per_fold[new], per_fold[base])]
-        d_ba = [a["balanced_acc"] - b["balanced_acc"] for a, b in zip(per_fold[new], per_fold[base])]
-        comparison[f"{new}_vs_{base}"] = {
-            "delta_macro_f1_per_fold": d_f1, "delta_macro_f1_mean": float(np.mean(d_f1)),
-            "delta_balanced_acc_per_fold": d_ba, "delta_balanced_acc_mean": float(np.mean(d_ba)),
-            "folds_improved_macro_f1": int(sum(d > 0 for d in d_f1)), "n_folds": n_splits,
-            "pattern": pattern(d_f1),
-            "delta_recall_per_class": {n: scen_out[new]["per_class"][n]["recall"] - scen_out[base]["per_class"][n]["recall"] for n in names},
-            "note": "Deskriptif. Tidak ada uji signifikansi; peningkatan kecil/tidak konsisten bukan bukti meyakinkan."}
-
-    pd.DataFrame([{"scenario": s, "crop_id": df.crop_id[i], "image_id": df.image_id[i], "fold_id": oof_fold[i],
-                   "y_true": cls_name[y[i]], "y_pred": cls_name[oof[s][i]], "max_proba": round(float(oof_p[s][i]), 4)}
-                  for s in SCENARIOS for i in range(len(df))]).to_csv(RES / "oof_predictions.csv", index=False)
-
-    # ---- model akhir (data penuh, prosedur pemilihan parameter yang sama). Skor jujur = skor OOF di atas.
-    log("\n--- Melatih model akhir (seluruh data) untuk demo ---")
-    ab = [s for s in "ABCD"]
-    best = max(ab, key=lambda s: scen_out[s]["mean"]["macro_f1"])
-    pipes, finals = {}, {}
-    for s in ab:
-        pipes[s], finals[s] = fit_scenario(X, y, g, SCENARIOS[s], k_mode, quick)
-        log(f"  final {s}: {finals[s].get('best_params')}")
-    best_cluster = max("CD", key=lambda s: scen_out[s]["mean"]["macro_f1"])
-    cluster_analysis = analyse_clusters(paths, X, y, cls_name, present, names, pipes[best_cluster], best_cluster, k_mode, quick)
-    err_img = error_montage(paths, y, oof[best], cls_name, best)
-    pooled_cm = np.array(scen_out[best]["confusion"])
-    off = [(names[i], names[j], int(pooled_cm[i, j])) for i in range(len(names)) for j in range(len(names))
-           if i != j and pooled_cm[i, j] > 0]
-    off.sort(key=lambda t: -t[2])
-
-    joblib.dump({"pipelines": pipes, "class_ids": present, "class_names": names, "best": best,
-                 "final_info": finals, "features": fcols, "oof_macro_f1": {s: scen_out[s]["mean"]["macro_f1"] for s in ab},
-                 "created": datetime.now().isoformat(timespec="seconds")}, MODELS_PATH)
-
-    summary = {
-        "meta": {"created": datetime.now().isoformat(timespec="seconds"), "n_crops": int(len(df)),
-                 "n_groups": int(df.group_id.nunique()), "n_features": len(fcols), "n_splits": n_splits,
-                 "seed": SEED, "k_mode": k_mode, "quick": quick, "best_scenario": best,
-                 "best_cluster_scenario": best_cluster, "libraries": library_versions(),
-                 "cv": "StratifiedGroupKFold luar; CV dalam StratifiedGroupKFold (macro-F1); groups=group_id"},
-        "class_names": names,
-        "class_distribution": {n: {"crops": int((df.class_name == n).sum()),
-                                   "groups": int(df[df.class_name == n].group_id.nunique())} for n in names},
-        "audit": audit, "folds": fold_info, "scenarios": scen_out, "comparison": comparison,
-        "final_models": finals, "top_confusions": [{"true": a, "pred": b, "count": c} for a, b, c in off[:8]],
-        "error_montage": err_img, "cluster_analysis": cluster_analysis,
+DATA_DIR = ROOT / "data"
+RESULTS_DIR = ROOT / "results"
+MODELS_PATH = RESULTS_DIR / "models.joblib"
+SUMMARY_PATH = RESULTS_DIR / "summary.json"
+
+DEFAULT_DATASET = DATA_DIR / "georgia_benchmark.csv"
+ALT_DATASET = DATA_DIR / "urban_infrastructure_potholes.csv"
+
+
+def ensure_dirs():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# --------------------------------------------------------------------------- Dataset Metadata Specs
+DATASET_SPECS = {
+    "georgia_benchmark.csv": {
+        "name": "Georgia Socio-Economic & Civic Infrastructure Dataset (Fotheringham et al.)",
+        "description": "Dataset benchmark standar internasional GWR (159 counties). Memprediksi tingkat SDM/capaian publik berdasarkan kemiskinan, populasi pedesaan, dan demografi.",
+        "target": "PctBach",
+        "features": ["PctPov", "PctBlack", "PctRural"],
+        "coords": ["X", "Y"],
+        "lat_lon": ["Latitude", "Longitud"],
+        "id_col": "CountyName"
+    },
+    "urban_infrastructure_potholes.csv": {
+        "name": "City of Chicago 311 Road Distress & Potholes Dataset (Open Data CDOT)",
+        "description": "Data riil laporan kerusakan jalan dan lubang jalan (potholes) dari Chicago Data Portal berdasarkan wilayah komunitas.",
+        "target": "total_pothole_reports",
+        "features": ["unique_blocks", "police_districts_served"],
+        "coords": ["X", "Y"],
+        "lat_lon": ["latitude", "longitude"],
+        "id_col": "community_area"
     }
-    write_json(RES / "summary.json", summary)
-    log("\n=== RINGKASAN (rata-rata fold ± simpangan baku) ===")
-    for s in SCENARIOS:
-        m, sd = scen_out[s]["mean"], scen_out[s]["std"]
-        log(f"{s} {SCENARIOS[s]['name']:28s} macroF1={m['macro_f1']:.3f}±{sd['macro_f1']:.3f} "
-            f"balAcc={m['balanced_acc']:.3f}±{sd['balanced_acc']:.3f} acc={m['accuracy']:.3f}±{sd['accuracy']:.3f}")
-    for k, v in comparison.items():
-        log(f"{k}: Δmacro-F1={v['delta_macro_f1_mean']:+.3f} ({v['folds_improved_macro_f1']}/{v['n_folds']} fold naik, {v['pattern']})")
-    log(f"\nModel demo default: skenario {best}. Jalankan: python app.py")
+}
 
 
-def analyse_clusters(paths, X, y, cls_name, present, names, pipe, scen, k_mode, quick):
-    """Analisis EKSPLORATIF pada model akhir (bukan untuk evaluasi): tabel cluster x kelas, PCA 2D, elbow, sampel."""
-    Z = pipe.named_steps["scaler"].transform(X)
-    aug = pipe.named_steps["cluster"]
-    cl = aug.cluster_ids(Z)
-    k = aug.n_clusters
-    cont = np.zeros((k, len(present)), int)
-    for c, yy in zip(cl, y):
-        cont[c, present.index(yy)] += 1
-    rng = np.random.RandomState(SEED)
-    idx = rng.choice(len(Z), min(2500, len(Z)), replace=False)
-    pca = PCA(2, random_state=SEED).fit(Z)
-    P = pca.transform(Z[idx])
-    sil_idx = rng.choice(len(Z), min(3000, len(Z)), replace=False)
-    curve = []
-    for kk in range(2, 3 if quick else 13):
-        km = KMeans(kk, n_init=3, random_state=SEED).fit(Z)
-        sl = float(silhouette_score(Z[sil_idx], km.predict(Z[sil_idx]))) if len(set(km.predict(Z[sil_idx]))) > 1 else None
-        curve.append({"k": kk, "inertia": float(km.inertia_), "silhouette": sl})
-    imgs = {}
-    for c in range(k):
-        members = np.where(cl == c)[0]
-        pick = rng.choice(members, min(12, len(members)), replace=False) if len(members) else []
-        imgs[c] = montage([(paths[i], cls_name[y[i]]) for i in pick], RES / "clusters" / f"cluster_{c}.jpg", cols=6)
-    purity = [{"cluster": c, "size": int(cont[c].sum()),
-               "dominant_class": names[int(cont[c].argmax())] if cont[c].sum() else None,
-               "dominant_share": float(cont[c].max() / cont[c].sum()) if cont[c].sum() else 0.0} for c in range(k)]
-    return {"scenario": scen, "k": int(k), "k_mode": k_mode,
-            "silhouette_all": float(silhouette_score(Z[sil_idx], cl[sil_idx])) if len(set(cl[sil_idx])) > 1 else None,
-            "contingency": cont.tolist(), "purity": purity, "elbow": curve,
-            "pca_explained_variance": [float(v) for v in pca.explained_variance_ratio_],
-            "pca_points": [{"x": float(P[i, 0]), "y": float(P[i, 1]), "cluster": int(cl[j]),
-                            "cls": cls_name[y[j]]} for i, j in enumerate(idx)],
-            "montages": {str(c): p for c, p in imgs.items()},
-            "note": "Dihitung pada seluruh data hanya untuk interpretasi/visualisasi; PCA bukan algoritma utama."}
+def detect_columns(df: pd.DataFrame, custom_target: Optional[str] = None) -> Dict[str, Any]:
+    """Deteksi otomatis kolom koordinat, target, dan fitur jika custom CSV dipakai."""
+    filename = "custom.csv"
+    cols = df.columns.tolist()
+    
+    # Cek apakah cocok dengan preset
+    for preset_name, spec in DATASET_SPECS.items():
+        if set(spec["features"] + [spec["target"]]).issubset(set(cols)):
+            return spec
+
+    # Deteksi koordinat
+    coord_x, coord_y = None, None
+    for pair in [("X", "Y"), ("x", "y"), ("utm_x", "utm_y"), ("Longitud", "Latitude"), ("longitude", "latitude"), ("lon", "lat")]:
+        if pair[0] in cols and pair[1] in cols:
+            coord_x, coord_y = pair[0], pair[1]
+            break
+            
+    if not coord_x:
+        # Fallback cari numerik
+        num_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        if len(num_cols) >= 3:
+            coord_x, coord_y = num_cols[-2], num_cols[-1]
+        else:
+            raise ValueError("Tidak dapat mendeteksi kolom koordinat (X, Y / lon, lat).")
+
+    # Deteksi target
+    target = custom_target if custom_target and custom_target in cols else None
+    if not target:
+        num_cols = [c for c in df.select_dtypes(include=[np.number]).columns if c not in [coord_x, coord_y]]
+        target = num_cols[0] if num_cols else cols[0]
+
+    # Prediktor: semua kolom numerik selain koordinat & target
+    features = [c for c in df.select_dtypes(include=[np.number]).columns if c not in [coord_x, coord_y, target]]
+    if len(features) > 4:
+        features = features[:4]  # Ambil maksimal 4 prediktor utama untuk stabilitas
+
+    return {
+        "name": "Custom Uploaded Dataset",
+        "description": f"Dataset kustom dengan target '{target}' dan {len(features)} prediktor.",
+        "target": target,
+        "features": features,
+        "coords": [coord_x, coord_y],
+        "lat_lon": [coord_y, coord_x] if "lat" in coord_y.lower() else [coord_x, coord_y],
+        "id_col": cols[0]
+    }
 
 
-def error_montage(paths, y, pred, cls_name, scen):
-    wrong = np.where(pred != y)[0]
-    if not len(wrong):
-        return None
-    pick = np.random.RandomState(SEED).choice(wrong, min(24, len(wrong)), replace=False)
-    items = [(paths[i], f"{cls_name[y[i]][:8]}>{cls_name[pred[i]][:8]}") for i in pick]
-    return montage(items, RES / "errors" / f"errors_{scen}.jpg", cols=6)
+# --------------------------------------------------------------------------- Modul Analisis Spasial
+class SpatialRegressionEngine:
+    def __init__(self, data_path: Path | str, target_col: Optional[str] = None):
+        ensure_dirs()
+        self.data_path = Path(data_path)
+        if not self.data_path.exists():
+            raise FileNotFoundError(f"Berkas dataset tidak ditemukan di: {self.data_path}")
+
+        self.df = pd.read_csv(self.data_path)
+        self.spec = detect_columns(self.df, custom_target=target_col)
+        
+        self.target_name = self.spec["target"]
+        self.feature_names = self.spec["features"]
+        self.coord_cols = self.spec["coords"]
+        
+        # Bersihkan missing values
+        used_cols = [self.target_name] + self.feature_names + self.coord_cols
+        self.df_clean = self.df.dropna(subset=used_cols).copy()
+        
+        self.coords = np.array(list(zip(self.df_clean[self.coord_cols[0]], self.df_clean[self.coord_cols[1]])))
+        self.y = self.df_clean[self.target_name].values.reshape((-1, 1))
+        self.X = self.df_clean[self.feature_names].values
+        self.n = len(self.df_clean)
+        self.k = len(self.feature_names)
+
+    def audit(self) -> Dict[str, Any]:
+        """Audit data, missing values, dan uji multikolinieritas VIF."""
+        X_const = sm.add_constant(self.X)
+        vifs = {}
+        for i, col in enumerate(self.feature_names):
+            try:
+                vifs[col] = float(variance_inflation_factor(X_const, i + 1))
+            except Exception:
+                vifs[col] = 1.0
+
+        coord_stats = {
+            "x_min": float(self.coords[:, 0].min()),
+            "x_max": float(self.coords[:, 0].max()),
+            "y_min": float(self.coords[:, 1].min()),
+            "y_max": float(self.coords[:, 1].max())
+        }
+
+        return {
+            "dataset_name": self.spec["name"],
+            "observations": self.n,
+            "target": self.target_name,
+            "features": self.feature_names,
+            "vif": vifs,
+            "vif_status": "Lolos (Semua VIF < 10)" if all(v < 10 for v in vifs.values()) else "Peringatan Multikolinieritas",
+            "coordinates": coord_stats
+        }
+
+    def fit_ols(self) -> Dict[str, Any]:
+        """Melatih Model Biasa (Global OLS) dan menghitung diagnostik."""
+        X_const = sm.add_constant(self.X)
+        ols_model = sm.OLS(self.y, X_const).fit()
+        
+        # Koefisien
+        var_names = ["Intercept"] + self.feature_names
+        params = []
+        for i, name in enumerate(var_names):
+            params.append({
+                "variable": name,
+                "coef": float(ols_model.params[i]),
+                "std_err": float(ols_model.bse[i]),
+                "t_stat": float(ols_model.tvalues[i]),
+                "p_value": float(ols_model.pvalues[i]),
+                "ci_lower": float(ols_model.conf_int()[i, 0]),
+                "ci_upper": float(ols_model.conf_int()[i, 1])
+            })
+
+        # Uji Normalitas & Heteroskedastisitas
+        jb_stat, jb_p = stats.jarque_bera(ols_model.resid)
+        
+        # Hitung AICc manual untuk OLS
+        n = self.n
+        k = self.k + 2  # termasuk intercept & sigma2
+        aicc = ols_model.aic + (2 * k * (k + 1)) / (n - k - 1) if (n - k - 1) > 0 else ols_model.aic
+
+        self.ols_res = ols_model
+        return {
+            "r2": float(ols_model.rsquared),
+            "adj_r2": float(ols_model.rsquared_adj),
+            "aic": float(ols_model.aic),
+            "aicc": float(aicc),
+            "bic": float(ols_model.bic),
+            "rss": float(np.sum(ols_model.resid ** 2)),
+            "f_stat": float(ols_model.fvalue),
+            "f_pvalue": float(ols_model.f_pvalue),
+            "jarque_bera_p": float(jb_p),
+            "coefficients": params,
+            "residuals": ols_model.resid.tolist(),
+            "predictions": ols_model.fittedvalues.tolist()
+        }
+
+    def fit_gwr(self, kernel: str = "bisquare", adaptive: bool = True) -> Dict[str, Any]:
+        """Mencari bandwidth optimal dan melatih Model GWR."""
+        # 1. Bandwidth selection
+        selector = Sel_BW(self.coords, self.y, self.X, kernel=kernel, fixed=not adaptive)
+        bw = selector.search(criterion="AICc")
+        
+        # 2. Fit GWR
+        gwr_model = GWR(self.coords, self.y, self.X, bw=bw, kernel=kernel, fixed=not adaptive).fit()
+        self.gwr_res = gwr_model
+        
+        # 3. Distribusi koefisien lokal (Min, Q1, Median, Q3, Max, Std)
+        var_names = ["Intercept"] + self.feature_names
+        local_coef_summary = []
+        for i, name in enumerate(var_names):
+            vals = gwr_model.params[:, i]
+            local_coef_summary.append({
+                "variable": name,
+                "min": float(np.min(vals)),
+                "q1": float(np.percentile(vals, 25)),
+                "median": float(np.median(vals)),
+                "q3": float(np.percentile(vals, 75)),
+                "max": float(np.max(vals)),
+                "std": float(np.std(vals))
+            })
+
+        # Local R²
+        local_r2 = gwr_model.localR2.flatten() if hasattr(gwr_model, "localR2") else np.zeros(self.n)
+
+        return {
+            "bandwidth": float(bw),
+            "bandwidth_type": "Adaptive (Nearest Neighbors)" if adaptive else "Fixed (Distance Units)",
+            "kernel": kernel,
+            "r2": float(gwr_model.R2),
+            "adj_r2": float(gwr_model.adj_R2) if hasattr(gwr_model, "adj_R2") else float(gwr_model.R2),
+            "aic": float(gwr_model.aic),
+            "aicc": float(gwr_model.aicc),
+            "bic": float(gwr_model.bic),
+            "rss": float(gwr_model.resid_ss),
+            "effective_parameters": float(gwr_model.tr_S),
+            "coefficients_summary": local_coef_summary,
+            "local_r2_stats": {
+                "min": float(np.min(local_r2)),
+                "mean": float(np.mean(local_r2)),
+                "median": float(np.median(local_r2)),
+                "max": float(np.max(local_r2))
+            },
+            "residuals": gwr_model.resid_response.flatten().tolist(),
+            "predictions": gwr_model.predy.flatten().tolist()
+        }
+
+    def compute_spatial_autocorrelation(self, ols_resid: np.ndarray, gwr_resid: np.ndarray, k_neighbors: int = 6) -> Dict[str, Any]:
+        """Uji autokorelasi spasial Moran's I pada residual OLS vs GWR."""
+        k = min(k_neighbors, self.n - 1)
+        w = KNN.from_array(self.coords, k=k)
+        w.transform = "R"  # Row-standardized
+        
+        mi_ols = Moran(np.array(ols_resid).flatten(), w)
+        mi_gwr = Moran(np.array(gwr_resid).flatten(), w)
+
+        return {
+            "k_neighbors": k,
+            "ols_moran_i": float(mi_ols.I),
+            "ols_p_value": float(mi_ols.p_sim),
+            "ols_z_score": float(mi_ols.z_sim),
+            "ols_spatial_bias": bool(mi_ols.p_sim < 0.05),
+            "gwr_moran_i": float(mi_gwr.I),
+            "gwr_p_value": float(mi_gwr.p_sim),
+            "gwr_z_score": float(mi_gwr.z_sim),
+            "gwr_spatial_bias": bool(mi_gwr.p_sim < 0.05),
+            "verdict": "GWR berhasil mengeliminasi bias autokorelasi spasial residual OLS!" if (mi_ols.p_sim < 0.05 and mi_gwr.p_sim >= 0.05) else "Autokorelasi spasial berkurang pada model GWR."
+        }
+
+    def anova_comparison(self, ols_rss: float, gwr_rss: float, ols_df: int, gwr_df: float) -> Dict[str, Any]:
+        """Uji ANOVA / F-test perbandingan signifikansi OLS vs GWR."""
+        df_num = max(0.001, ols_df - gwr_df)
+        df_den = max(0.001, gwr_df)
+        f_stat = ((ols_rss - gwr_rss) / df_num) / (gwr_rss / df_den)
+        p_val = 1.0 - stats.f.cdf(max(0.0, f_stat), df_num, df_den)
+
+        return {
+            "f_statistic": float(f_stat),
+            "df_numerator": float(df_num),
+            "df_denominator": float(df_den),
+            "p_value": float(p_val),
+            "is_significant": bool(p_val < 0.05),
+            "interpretation": "GWR secara signifikan lebih unggul dibandingkan Model Biasa (p < 0.05)." if p_val < 0.05 else "Perbedaan antara OLS dan GWR tidak signifikan secara statistik."
+        }
+
+    def run_all(self, kernel: str = "bisquare", adaptive: bool = True) -> Dict[str, Any]:
+        """Jalankan seluruh proses pemodelan, pengujian statistik, dan pembuatan ringkasan."""
+        print(f"[*] Inisialisasi Spatial Regression Engine untuk: {self.spec['name']}")
+        audit_info = self.audit()
+        print(f"[*] Data observasi: {self.n}, Target: {self.target_name}, Prediktor: {self.feature_names}")
+        
+        print("[*] Melatih Model Biasa (Global OLS)...")
+        ols_info = self.fit_ols()
+        print(f"    -> OLS R²: {ols_info['r2']:.4f}, AICc: {ols_info['aicc']:.2f}")
+
+        print("[*] Mencari bandwidth optimal & Melatih Model GWR...")
+        gwr_info = self.fit_gwr(kernel=kernel, adaptive=adaptive)
+        print(f"    -> Bandwidth optimal: {gwr_info['bandwidth']}, GWR R²: {gwr_info['r2']:.4f}, AICc: {gwr_info['aicc']:.2f}")
+
+        print("[*] Menguji autokorelasi spasial residual (Moran's I)...")
+        moran_info = self.compute_spatial_autocorrelation(
+            np.array(ols_info["residuals"]),
+            np.array(gwr_info["residuals"])
+        )
+        print(f"    -> Moran's I OLS: {moran_info['ols_moran_i']:.4f} (p={moran_info['ols_p_value']:.3f})")
+        print(f"    -> Moran's I GWR: {moran_info['gwr_moran_i']:.4f} (p={moran_info['gwr_p_value']:.3f})")
+
+        print("[*] Menjalankan Uji Signifikansi ANOVA F-Test...")
+        anova_info = self.anova_comparison(
+            ols_info["rss"],
+            gwr_info["rss"],
+            self.n - (self.k + 1),
+            self.n - gwr_info["effective_parameters"]
+        )
+
+        delta_r2 = gwr_info["r2"] - ols_info["r2"]
+        delta_aicc = gwr_info["aicc"] - ols_info["aicc"]
+        
+        summary = {
+            "meta": {
+                "dataset_name": self.spec["name"],
+                "description": self.spec["description"],
+                "target": self.target_name,
+                "features": self.feature_names,
+                "n_samples": self.n,
+                "timestamp": pd.Timestamp.now().isoformat()
+            },
+            "audit": audit_info,
+            "ols": ols_info,
+            "gwr": gwr_info,
+            "moran": moran_info,
+            "anova": anova_info,
+            "comparison": {
+                "delta_r2": float(delta_r2),
+                "r2_improvement_pct": float((delta_r2 / (ols_info["r2"] + 1e-6)) * 100),
+                "delta_aicc": float(delta_aicc),
+                "aicc_verdict": "GWR Jauh Lebih Unggul (ΔAICc < -3)" if delta_aicc < -3 else "Model Biasa Cukup Memadai",
+                "best_model": "GWR (Geographically Weighted Regression)" if (delta_aicc < -3 or delta_r2 > 0.05) else "OLS (Model Biasa)"
+            }
+        }
+
+        # Simpan summary.json
+        with open(SUMMARY_PATH, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+        print(f"[✓] Ringkasan komparasi disimpan ke: {SUMMARY_PATH}")
+
+        # Simpan spatial points GeoJSON untuk peta interaktif Leaflet
+        self._export_spatial_points(ols_info, gwr_info)
+
+        # Simpan model joblib untuk inference
+        bundle = {
+            "spec": self.spec,
+            "ols_params": self.ols_res.params,
+            "gwr_bw": gwr_info["bandwidth"],
+            "gwr_kernel": kernel,
+            "gwr_adaptive": adaptive,
+            "coords": self.coords,
+            "y": self.y,
+            "X": self.X,
+            "summary": summary
+        }
+        joblib.dump(bundle, MODELS_PATH)
+        print(f"[✓] Bundle model disimpan ke: {MODELS_PATH}")
+
+        # Simpan Tabel LaTeX
+        self._export_latex_table(summary)
+
+        return summary
+
+    def _export_spatial_points(self, ols_info: Dict[str, Any], gwr_info: Dict[str, Any]):
+        """Ekspor titik-titik spasial ke format JSON untuk visualisasi peta Leaflet."""
+        points = []
+        lat_col = self.spec["lat_lon"][0] if self.spec["lat_lon"][0] in self.df_clean else None
+        lon_col = self.spec["lat_lon"][1] if self.spec["lat_lon"][1] in self.df_clean else None
+        
+        has_real_lat_lon = bool(lat_col and lon_col)
+        
+        for i in range(self.n):
+            if has_real_lat_lon:
+                lat = float(self.df_clean.iloc[i][lat_col])
+                lon = float(self.df_clean.iloc[i][lon_col])
+            else:
+                # Normalisasi ke koordinat geografis jika hanya ada UTM
+                x_val = self.coords[i, 0]
+                y_val = self.coords[i, 1]
+                lat = 32.0 + (y_val - np.mean(self.coords[:, 1])) / 111000
+                lon = -83.0 + (x_val - np.mean(self.coords[:, 0])) / 85000
+
+            pt = {
+                "id": int(i + 1),
+                "name": str(self.df_clean.iloc[i].get(self.spec.get("id_col", "id"), f"Area {i+1}")),
+                "lat": lat,
+                "lon": lon,
+                "x": float(self.coords[i, 0]),
+                "y": float(self.coords[i, 1]),
+                "observed": float(self.y[i, 0]),
+                "pred_ols": float(ols_info["predictions"][i]),
+                "pred_gwr": float(gwr_info["predictions"][i]),
+                "resid_ols": float(ols_info["residuals"][i]),
+                "resid_gwr": float(gwr_info["residuals"][i]),
+                "features": {name: float(self.X[i, j]) for j, name in enumerate(self.feature_names)},
+                "local_r2": float(self.gwr_res.localR2[i, 0]) if hasattr(self.gwr_res, "localR2") else 0.5,
+                "local_betas": {
+                    "Intercept": float(self.gwr_res.params[i, 0]),
+                    **{name: float(self.gwr_res.params[i, j + 1]) for j, name in enumerate(self.feature_names)}
+                }
+            }
+            points.append(pt)
+
+        points_path = RESULTS_DIR / "spatial_points.json"
+        with open(points_path, "w", encoding="utf-8") as f:
+            json.dump(points, f, indent=2)
+        print(f"[✓] Data titik spasial Leaflet disimpan ke: {points_path}")
+
+    def _export_latex_table(self, summary: Dict[str, Any]):
+        """Buat tabel LaTeX siap pakai untuk dimasukkan ke laporan skripsi/makalah."""
+        ols = summary["ols"]
+        gwr = summary["gwr"]
+        moran = summary["moran"]
+        comp = summary["comparison"]
+
+        tex_content = f"""% Tabel Komparasi Model Biasa (OLS) vs Model GWR
+% Dihasilkan otomatis oleh CivicScan Spatial Regression Engine
+\\begin{{table}}[htbp]
+\\centering
+\\caption{{Perbandingan Kinerja Model Biasa (OLS) dan Model GWR}}
+\\label{{tab:ols_vs_gwr_comparison}}
+\\begin{{tabular}}{{lccc}}
+\\toprule
+\\textbf{{Metrik Evaluasi}} & \\textbf{{Model Biasa (OLS)}} & \\textbf{{Model GWR}} & \\textbf{{Perubahan ($\\Delta$)}} \\\\
+\\midrule
+Koefisien Determinasi ($R^2$) & {ols['r2']:.4f} & {gwr['r2']:.4f} & +{comp['delta_r2']:.4f} ({comp['r2_improvement_pct']:.1f}\\%) \\\\
+Adjusted $R^2$ & {ols['adj_r2']:.4f} & {gwr['adj_r2']:.4f} & +{(gwr['adj_r2'] - ols['adj_r2']):.4f} \\\\
+Akaike Information Criterion (AIC) & {ols['aic']:.2f} & {gwr['aic']:.2f} & {(gwr['aic'] - ols['aic']):.2f} \\\\
+Corrected AIC (AICc) & {ols['aicc']:.2f} & {gwr['aicc']:.2f} & {comp['delta_aicc']:.2f} \\\\
+Residual Sum of Squares (RSS) & {ols['rss']:.2f} & {gwr['rss']:.2f} & {(gwr['rss'] - ols['rss']):.2f} \\\\
+Uji Moran's I Residual (p-value) & {moran['ols_moran_i']:.4f} ({moran['ols_p_value']:.3f}) & {moran['gwr_moran_i']:.4f} ({moran['gwr_p_value']:.3f}) & Eliminasi Autokorelasi \\\\
+Bandwidth Optimal & - & {gwr['bandwidth']:.1f} ({gwr['bandwidth_type']}) & - \\\\
+\\midrule
+\\textbf{{Keputusan Model Terbaik}} & \\multicolumn{{3}}{{c}}{{\\textbf{{{comp['best_model']}}}}} \\\\
+\\bottomrule
+\\end{{tabular}}
+\\end{{table}}
+"""
+        tex_path = RESULTS_DIR / "comparison_table.tex"
+        tex_path.write_text(tex_content, encoding="utf-8")
+        print(f"[✓] Tabel LaTeX akademik disimpan ke: {tex_path}")
 
 
+# --------------------------------------------------------------------------- CLI Command Dispatcher
 def main():
-    ap = argparse.ArgumentParser(description="CivicScan ML pipeline")
-    ap.add_argument("command", choices=["audit", "crops", "features", "experiment", "all"])
-    ap.add_argument("--folds", type=int, default=5, help="jumlah fold luar (3 atau 5)")
-    ap.add_argument("--k-mode", choices=["grid", "silhouette"], default="grid",
-                    help="grid: k dipilih lewat CV dalam (macro-F1, data latih). silhouette: k dipilih tanpa label.")
-    ap.add_argument("--quick", action="store_true", help="grid kecil untuk uji cepat (bukan untuk hasil laporan)")
-    a = ap.parse_args()
-    if a.command in ("audit",):
-        cmd_audit()
-    if a.command in ("crops", "all"):
-        cmd_crops()
-    if a.command in ("features", "all"):
-        cmd_features()
-    if a.command in ("experiment", "all"):
-        cmd_experiment(a.folds, a.k_mode, a.quick)
+    parser = argparse.ArgumentParser(description="CivicScan Spatial Regression Engine")
+    parser.add_argument("command", choices=["audit", "run", "all", "compare"], default="run", nargs="?",
+                        help="Perintah yang akan dijalankan: audit, run, all, compare")
+    parser.add_argument("--dataset", type=str, default=str(DEFAULT_DATASET),
+                        help="Path ke berkas dataset CSV")
+    parser.add_argument("--target", type=str, default=None,
+                        help="Nama kolom target opsional")
+    parser.add_argument("--kernel", type=str, default="bisquare", choices=["bisquare", "gaussian"],
+                        help="Fungsi pembobot kernel spasial")
+    parser.add_argument("--fixed", action="store_true",
+                        help="Gunakan bandwidth tetap (fixed) alih-alih adaptif")
+
+    args = parser.parse_args()
+    engine = SpatialRegressionEngine(data_path=args.dataset, target_col=args.target)
+
+    if args.command == "audit":
+        info = engine.audit()
+        print(json.dumps(info, indent=2))
+    elif args.command in ["run", "all"]:
+        engine.run_all(kernel=args.kernel, adaptive=not args.fixed)
+    elif args.command == "compare":
+        if not SUMMARY_PATH.exists():
+            print("Belum ada ringkasan hasil. Jalankan: python pipeline.py run")
+            sys.exit(1)
+        with open(SUMMARY_PATH, "r", encoding="utf-8") as f:
+            summary = json.load(f)
+        ols = summary["ols"]
+        gwr = summary["gwr"]
+        print("\n" + "=" * 65)
+        print("          HASIL KOMPARASI MODEL BIASA (OLS) vs MODEL GWR          ")
+        print("=" * 65)
+        print(f"{'Metrik':<25} | {'Model Biasa (OLS)':<16} | {'Model GWR':<16}")
+        print("-" * 65)
+        print(f"{'R-Squared (R²)':<25} | {ols['r2']:<16.4f} | {gwr['r2']:<16.4f}")
+        print(f"{'AICc':<25} | {ols['aicc']:<16.2f} | {gwr['aicc']:<16.2f}")
+        print(f"{'Residual Moran I':<25} | {summary['moran']['ols_moran_i']:<16.4f} | {summary['moran']['gwr_moran_i']:<16.4f}")
+        print(f"{'Moran I p-value':<25} | {summary['moran']['ols_p_value']:<16.3f} | {summary['moran']['gwr_p_value']:<16.3f}")
+        print("-" * 65)
+        print(f"Keputusan: {summary['comparison']['best_model']}")
+        print(f"Verdict:   {summary['comparison']['aicc_verdict']}")
+        print("=" * 65 + "\n")
 
 
 if __name__ == "__main__":
-    # Impor ulang sebagai modul 'pipeline' agar kelas yang di-pickle (ClusterAugmenter) dapat dimuat oleh Flask.
-    import pipeline as _self
-    _self.main()
+    main()

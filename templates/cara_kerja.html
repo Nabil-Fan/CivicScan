@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Cara Kerja & Formulasi Matematis: OLS vs GWR — CivicScan{% endblock %}
+{% block content %}
+
+<main>
+<section class="hero hero-slim">
+  <svg class="blob blob-gold" aria-hidden="true"><use href="#blob"/></svg>
+  <svg class="sprig sprig-hero" aria-hidden="true"><use href="#sprig"/></svg>
+  <div class="container">
+    <div class="badge badge-primary mb-xs">Fondasi Teori & Ekonometrika Spasial</div>
+    <h1 class="display">Cara Kerja & Formulasi Matematika</h1>
+    <p class="script">dari asumsi klasik OLS hingga pembobotan matriks spasial lokal GWR</p>
+    <p class="lead" style="max-width: 820px; margin-top: 8px;">
+      Pelajari bagaimana matematika mengubah model yang "buta ruang" menjadi model adaptif yang menghormati geografi nyata, lengkap dengan pembuktian analitis dan analogi dunia nyata.
+    </p>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <!-- Pengantar Filosofis & Analogi Dunia Nyata -->
+    <div class="card">
+      <h2 class="h-sm">1. Landasan Filosofis & Analogi Sederhana</h2>
+      <p class="lead narrow" style="margin-top: 10px;">
+        Dalam statistika klasik, regresi mengasumsikan bahwa setiap titik data bersifat saling bebas dan seragam (<em>Independent and Identically Distributed / i.i.d</em>). Namun di dunia nyata, asumsi ini melanggar <strong>Hukum Pertama Geografi Waldo Tobler (1970)</strong>:
+      </p>
+      <blockquote class="notice" style="font-size: 16px; font-style: italic; border-left: 4px solid var(--indigo); margin-top: 12px;">
+        "Everything is related to everything else, but near things are more related than distant things."<br>
+        <small style="font-style: normal; font-weight: 600; color: var(--indigo);">&mdash; Prof. Waldo Tobler, 1970</small>
+      </blockquote>
+
+      <!-- Analogi Termometer vs Stasiun Cuaca -->
+      <div class="grid-2 mt" style="gap: 20px;">
+        <div style="background: #fdf7f7; padding: 18px; border-radius: 8px; border-left: 4px solid var(--clay);">
+          <strong style="color: var(--clay); font-size: 14px;">Analogi Model Biasa (OLS) = Termometer Satu Negara</strong>
+          <p style="font-size: 13px; line-height: 1.55; margin-top: 6px; color: #444;">
+            Bayangkan sebuah termometer yang mengukur suhu rata-rata seluruh Indonesia sebesar $28^\circ\text{C}$. Jika termometer ini dipakai untuk memprediksi suhu di Puncak Jaya Papua dan Pantai Kuta Bali, hasilnya akan salah total. Mengapa? Karena ia memukul rata keragaman alam hanya dengan satu angka tunggal.
+          </p>
+        </div>
+
+        <div style="background: #f7fbf8; padding: 18px; border-radius: 8px; border-left: 4px solid #2e7d32;">
+          <strong style="color: #2e7d32; font-size: 14px;">Analogi Model GWR = Jaringan Sensor Cuaca per Distrik</strong>
+          <p style="font-size: 13px; line-height: 1.55; margin-top: 6px; color: #444;">
+            GWR menempatkan sensor di setiap kabupaten. Saat menghitung suhu di satu titik, sensor memberi bobot 100% pada pembacaan tetangga terdekatnya, dan secara bertahap mengurangi bobot wilayah yang berada ratusan kilometer jauhnya. Hasilnya: prediksi suhu sangat akurat di pegunungan maupun pantai.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Jembatan Lambang Matematika ke Data Georgia -->
+    <div class="card mt" style="background: #fbf9f6; border-left: 5px solid var(--gold);">
+      <h3 class="h-xs" style="color: var(--indigo);">Kamus Simbol: Menghubungkan Rumus dengan Data Nyata Georgia</h3>
+      <p style="font-size: 13px; color: #444; margin-top: 4px;">
+        Agar tidak membingungkan, setiap simbol matematika dalam halaman ini berkorespondensi langsung dengan data nyata 159 kabupaten:
+      </p>
+      <div class="scroll-x mt-xs">
+        <table class="tbl tbl-compact" style="font-size: 13px; background: white;">
+          <thead>
+            <tr><th>Simbol Rumus</th><th>Makna Matematis</th><th>Artinya di Dataset Georgia</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>$y_i$</td>
+              <td>Variabel Terikat (Target)</td>
+              <td>Persentase penduduk lulusan Sarjana (S1) di kabupaten $i$ (<code>PctBach</code>).</td>
+            </tr>
+            <tr>
+              <td>$(u_i, v_i)$</td>
+              <td>Koordinat Spasial Dua Dimensi</td>
+              <td>Titik bujur (Longitude / X) dan lintang (Latitude / Y) pusat pemerintahan kabupaten $i$.</td>
+            </tr>
+            <tr>
+              <td>$x_{ik}$</td>
+              <td>Variabel Bebas ke-$k$</td>
+              <td>Faktor sosioekonomi: kemiskinan keluarga (<code>PctPov</code>), ras minoritas (<code>PctBlack</code>), status perdesaan (<code>PctRural</code>).</td>
+            </tr>
+            <tr>
+              <td>$\mathbf{W}(u_i, v_i)$</td>
+              <td>Matriks Pembobot Spasial Diagonal</td>
+              <td>Matriks yang memberi bobot tinggi ke kabupaten tetangga dan bobot nol ke kabupaten jauh.</td>
+            </tr>
+            <tr>
+              <td>$\beta_k(u_i, v_i)$</td>
+              <td>Koefisien Estimasi Lokal</td>
+              <td>Tingkat keparahan dampak kemiskinan terhadap peluang kuliah khusus di sekitar wilayah $(u_i, v_i)$.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Perbandingan Rumus OLS vs GWR -->
+    <div class="grid-2 mt">
+      <!-- Card OLS -->
+      <div class="card">
+        <h3 class="h-xs">2. Model Biasa (Global OLS Regression)</h3>
+        <p class="hint">Persamaan linear skalar untuk observasi ke-$i$:</p>
+        <div class="notice" style="background: #fbf9f6; font-size: 16px; text-align: center; padding: 16px;">
+          $$y_i = \beta_0 + \sum_{k=1}^p \beta_k x_{ik} + \epsilon_i$$
+        </div>
+        <p class="hint">Dalam notasi matriks:</p>
+        <div class="notice" style="background: #fbf9f6; font-size: 15px; text-align: center; padding: 12px;">
+          $$\mathbf{y} = \mathbf{X}\boldsymbol{\beta} + \boldsymbol{\epsilon}$$
+        </div>
+        <p class="hint">Estimator kuadrat terkecil (Ordinary Least Squares):</p>
+        <div class="notice" style="background: #fbf9f6; font-size: 16px; text-align: center; padding: 14px;">
+          $$\hat{\boldsymbol{\beta}} = \left( \mathbf{X}^T \mathbf{X} \right)^{-1} \mathbf{X}^T \mathbf{y}$$
+        </div>
+        <ul class="warn-list mt-sm">
+          <li><strong>Sifat Parameter:</strong> $\boldsymbol{\beta}$ bernilai tunggal dan konstan untuk seluruh wilayah.</li>
+          <li><strong>Kelemahan:</strong> Gagal mendeteksi <em>spatial non-stationarity</em> (variasi hubungan antar lokasi).</li>
+        </ul>
+      </div>
+
+      <!-- Card GWR -->
+      <div class="card">
+        <h3 class="h-xs">3. Model GWR (Geographically Weighted Regression)</h3>
+        <p class="hint">Persamaan lokal pada titik koordinat $(u_i, v_i)$:</p>
+        <div class="notice" style="background: #fbf9f6; font-size: 16px; text-align: center; padding: 16px;">
+          $$y_i = \beta_0(u_i, v_i) + \sum_{k=1}^p \beta_k(u_i, v_i) x_{ik} + \epsilon_i$$
+        </div>
+        <p class="hint">Estimator kuadrat terkecil berbobot lokal (WLS Spasial):</p>
+        <div class="notice" style="background: #fbf9f6; font-size: 15px; text-align: center; padding: 14px;">
+          $$\hat{\boldsymbol{\beta}}(u_i, v_i) = \left( \mathbf{X}^T \mathbf{W}(u_i, v_i) \mathbf{X} \right)^{-1} \mathbf{X}^T \mathbf{W}(u_i, v_i) \mathbf{y}$$
+        </div>
+        <p class="hint">Di mana $\mathbf{W}(u_i, v_i)$ adalah matriks pembobot spasial diagonal:</p>
+        <div class="notice" style="background: #fbf9f6; font-size: 15px; text-align: center; padding: 12px;">
+          $$\mathbf{W}(u_i, v_i) = \text{diag}\left(w_{i1}, w_{i2}, \dots, w_{in}\right)$$
+        </div>
+        <ul class="warn-list mt-sm">
+          <li><strong>Sifat Parameter:</strong> $\hat{\boldsymbol{\beta}}(u_i, v_i)$ unik dan fleksibel untuk setiap titik lokasi.</li>
+          <li><strong>Keunggulan:</strong> Menjelaskan heterogenitas spasial dan memetakan pola pengaruh lokal.</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Fungsi Kernel Pembobot Spasial -->
+    <div class="card mt">
+      <h2 class="h-sm">4. Fungsi Pembobot Spasial (Kernel Weighting)</h2>
+      <p class="lead narrow" style="margin-top: 10px;">
+        Bobot $w_{ij}$ mengukur seberapa besar pengaruh observasi di lokasi $j$ terhadap estimasi lokal di lokasi $i$. Jarak Euclidean antara dua titik dihitung sebagai $d_{ij} = \sqrt{(u_i - u_j)^2 + (v_i - v_j)^2}$.
+      </p>
+
+      <div class="grid-2 mt-sm">
+        <div class="notice" style="background: #fbf9f6; padding: 20px;">
+          <h4 class="label" style="margin-bottom: 8px;">A. Adaptive Bisquare Kernel (Default CivicScan)</h4>
+          <p class="hint">Digunakan saat kepadatan titik wilayah tidak seragam (misal: pusat kota padat, pinggiran renggang):</p>
+          <div style="text-align: center; font-size: 16px; margin: 12px 0;">
+            $$w_{ij} = \begin{cases} \left[1 - \left(\frac{d_{ij}}{b_i}\right)^2 \right]^2 & \text{jika } d_{ij} < b_i \\ 0 & \text{jika } d_{ij} \ge b_i \end{cases}$$
+          </div>
+          <p class="hint">Di mana $b_i$ adalah jarak ke tetangga terdekat ke-$k$ (jumlah tetangga konstan, radius fleksibel).</p>
+        </div>
+
+        <div class="notice" style="background: #fbf9f6; padding: 20px;">
+          <h4 class="label" style="margin-bottom: 8px;">B. Fixed Gaussian Kernel</h4>
+          <p class="hint">Digunakan saat skala geografis absolut menjadi acuan tetap:</p>
+          <div style="text-align: center; font-size: 16px; margin: 12px 0;">
+            $$w_{ij} = \exp\left( -\frac{1}{2} \left( \frac{d_{ij}}{b} \right)^2 \right)$$
+          </div>
+          <p class="hint">Di mana $b$ adalah radius bandwidth tetap (jarak konstan, jumlah tetangga bervariasi).</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Optimasi Bandwidth & Diagnostik -->
+    <div class="grid-2 mt">
+      <!-- Optimasi Bandwidth AICc -->
+      <div class="card">
+        <h3 class="h-xs">5. Optimasi Bandwidth Otomatis (AICc)</h3>
+        <p class="hint">
+          Pemilihan bandwidth $b$ yang optimal dilakukan secara iteratif menggunakan <strong>Golden Section Search</strong> untuk meminimalkan kriteria <em>Corrected Akaike Information Criterion (AICc)</em>:
+        </p>
+        <div class="notice" style="background: #fbf9f6; font-size: 15px; text-align: center; padding: 14px; margin-top: 12px;">
+          $$\text{AICc} = 2n \ln(\hat{\sigma}) + n \ln(2\pi) + n \left\{ \frac{n + \text{tr}(\mathbf{S})}{n - 2 - \text{tr}(\mathbf{S})} \right\}$$
+        </div>
+        <p class="hint" style="margin-top: 10px;">
+          Di mana $\mathbf{S}$ adalah <em>hat matrix</em> proyeksi $(\hat{\mathbf{y}} = \mathbf{S}\mathbf{y})$ dan $\text{tr}(\mathbf{S})$ merepresentasikan jumlah derajat bebas efektif parameter model.
+        </p>
+      </div>
+
+      <!-- Moran's I Residual -->
+      <div class="card">
+        <h3 class="h-xs">6. Uji Autokorelasi Spasial (Moran's I)</h3>
+        <p class="hint">
+          Untuk membuktikan apakah model bebas dari bias ruang, residual $e_i = y_i - \hat{y}_i$ diuji menggunakan koefisien <strong>Global Moran's I</strong>:
+        </p>
+        <div class="notice" style="background: #fbf9f6; font-size: 15px; text-align: center; padding: 14px; margin-top: 12px;">
+          $$I = \frac{n}{\sum_{i=1}^n \sum_{j=1}^n w_{ij}} \frac{\sum_{i=1}^n \sum_{j=1}^n w_{ij} (e_i - \bar{e})(e_j - \bar{e})}{\sum_{i=1}^n (e_i - \bar{e})^2}$$
+        </div>
+        <ul class="warn-list mt-sm">
+          <li><strong>Residual OLS:</strong> $I > 0$ dan $p < 0.05$ membuktikan ada autokorelasi positif (kesalahan mengelompok).</li>
+          <li><strong>Residual GWR:</strong> $I \approx 0$ dan $p \ge 0.05$ membuktikan residual acak sempurna (model valid).</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Uji ANOVA Non-Stasioneritas & Alur Komputasi -->
+    <div class="card mt">
+      <h2 class="h-sm">7. Uji Signifikansi ANOVA (F-Test)</h2>
+      <p class="lead narrow" style="margin-top: 10px;">
+        Apakah penambahan kompleksitas GWR sebanding dengan penurunan error-nya? Uji ANOVA membandingkan selisih <em>Residual Sum of Squares (RSS)</em> antara OLS dan GWR:
+      </p>
+      <div class="notice" style="background: #fbf9f6; font-size: 16px; text-align: center; padding: 16px; max-width: 600px; margin-inline: auto;">
+        $$F = \frac{(\text{RSS}_{\text{OLS}} - \text{RSS}_{\text{GWR}}) / (\text{df}_{\text{OLS}} - \text{df}_{\text{GWR}})}{\text{RSS}_{\text{GWR}} / \text{df}_{\text{GWR}}}$$
+      </div>
+      <p class="hint" style="text-align: center; margin-top: 12px;">
+        Jika $p\text{-value} < 0.05$, kita menolak hipotesis nol ($H_0$), yang membuktikan secara ilmiah bahwa koefisien hubungan bervariasi secara signifikan antar wilayah geografis.
+      </p>
+    </div>
+  </div>
+</section>
+</main>
+{% endblock %}
