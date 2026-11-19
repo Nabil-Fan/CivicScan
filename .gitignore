@@ -10,3 +10,8 @@ ENV/
 .DS_Store
 *.swp
 *~
+
+# Frontend Node & Vite
+node_modules/
+frontend/node_modules/
+.npm/
