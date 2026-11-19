@@ -8,7 +8,7 @@
   <div class="container" style="max-width: 920px; margin-inline: auto;">
     <div style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 14px;">
       <span class="badge badge-primary" style="font-size: 11px; padding: 5px 14px; letter-spacing: 0.08em; font-weight: 700;">
-        🔬 STUDI KOMPARASI METODE EKONOMETRIKA SPASIAL
+        STUDI KOMPARASI METODE EKONOMETRIKA SPASIAL
       </span>
     </div>
 
@@ -44,13 +44,13 @@
     <!-- Tombol Navigasi Cepat Terpusat -->
     <div class="btn-row" style="justify-content: center; margin-top: 26px; gap: 14px;">
       <a class="btn btn-fill" href="#studio" style="padding: 13px 26px; font-weight: 600;">
-        🗺️ Eksplorasi Peta Interaktif
+        Eksplorasi Peta Interaktif
       </a>
       <a class="btn btn-outline" href="#konteks-masalah" style="padding: 13px 22px;">
-        📊 4 Variabel Riset
+        4 Variabel Riset
       </a>
       <a class="btn btn-outline" href="/results" style="padding: 13px 22px;">
-        📑 Matriks Hasil & Paper
+        Matriks Hasil & Paper
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
       </a>
     </div>
@@ -199,20 +199,17 @@
     
     <!-- BANNER PANDUAN UTAMA: APA YANG DIHITUNG DI PETA INI? -->
     <div class="card mb" style="border-left: 6px solid var(--gold); background: #fffcf4; padding: 22px 24px; box-shadow: var(--shadow-card);">
-      <div style="display: flex; gap: 14px; align-items: flex-start;">
-        <span style="font-size: 30px; line-height: 1;">🎯</span>
-        <div>
-          <h3 class="h-xs" style="color: var(--indigo); font-size: 16px; margin-bottom: 6px; letter-spacing: 0.05em;">
-            PANDUAN PEMAHAMAN: APA SEBENARNYA YANG SEDANG DIHITUNG DI PETA INI?
-          </h3>
-          <p style="font-size: 14px; line-height: 1.65; color: #222; margin: 0;">
-            🎓 <strong>Target yang Dihitung & Ditebak:</strong> Persentase warga dewasa yang <strong>lulus kuliah Sarjana (S1)</strong> di 159 kabupaten negara bagian Georgia.<br>
-            🔍 <strong>Faktor Penentu:</strong> Model menebak kelulusan kuliah berdasarkan <em>tingkat kemiskinan keluarga</em>, <em>populasi minoritas</em>, dan <em>isolasi pedesaan</em>.<br>
-            ⚖️ <strong>Pertarungan Dua Model:</strong>
-            <strong>Model Biasa (OLS)</strong> memukul rata bahwa kemiskinan berdampak sama mematikannya di mana pun.
-            <strong>Model GWR</strong> membaca realitas lokal: di kota besar (Atlanta) orang miskin tetap bisa kuliah karena banyak beasiswa & kampus dekat; sebaliknya di pelosok hutan (Clinch) kemiskinan memutus akses kuliah secara total.
-          </p>
-        </div>
+      <div>
+        <h3 class="h-xs" style="color: var(--indigo); font-size: 16px; margin-bottom: 6px; letter-spacing: 0.05em;">
+          PANDUAN PEMAHAMAN: APA SEBENARNYA YANG SEDANG DIHITUNG DI PETA INI?
+        </h3>
+        <p style="font-size: 14px; line-height: 1.65; color: #222; margin: 0;">
+          <strong>Target yang Dihitung & Ditebak:</strong> Persentase warga dewasa yang <strong>lulus kuliah Sarjana (S1)</strong> di 159 kabupaten negara bagian Georgia.<br>
+          <strong>Faktor Penentu:</strong> Model menebak kelulusan kuliah berdasarkan <em>tingkat kemiskinan keluarga</em>, <em>populasi minoritas</em>, dan <em>isolasi pedesaan</em>.<br>
+          <strong>Pertarungan Dua Model:</strong>
+          <strong>Model Biasa (OLS)</strong> memukul rata bahwa kemiskinan berdampak sama mematikannya di mana pun.
+          <strong>Model GWR</strong> membaca realitas lokal: di kota besar (Atlanta) orang miskin tetap bisa kuliah karena banyak beasiswa & kampus dekat; sebaliknya di pelosok hutan (Clinch) kemiskinan memutus akses kuliah secara total.
+        </p>
       </div>
     </div>
 
@@ -240,7 +237,7 @@
       <div style="display: flex; flex-direction: column; gap: 10px;">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
           <div>
-            <strong style="color: var(--indigo); font-size: 14px;">🧭 Tur Terpandu: Jelajahi 4 Wilayah dengan Karakter Ekstrem</strong>
+            <strong style="color: var(--indigo); font-size: 14px;">Tur Terpandu: Jelajahi 4 Wilayah dengan Karakter Ekstrem</strong>
             <p class="hint" style="margin-top: 2px;">Klik salah satu kartu cerita di bawah untuk terbang ke lokasinya di peta dan melihat pembuktian error model:</p>
           </div>
           <span class="badge badge-secondary" style="font-size: 11px;">1-Klik Langsung Terbang</span>
@@ -248,22 +245,22 @@
 
         <div class="btn-row" style="margin-top: 6px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px;">
           <button type="button" class="btn btn-outline btn-sm" id="btn-tour-atlanta" style="border-color: var(--indigo); color: var(--indigo); font-weight: 600; text-align: left; padding: 10px 14px; border-radius: 8px;">
-            🏙️ <strong>1. Atlanta (Fulton)</strong><br>
+            <strong>1. Atlanta (Fulton)</strong><br>
             <small style="font-size: 11px; text-transform: none; opacity: 0.85;">Pusat Bisnis (Riil 31.6% Sarjana)</small>
           </button>
 
           <button type="button" class="btn btn-outline btn-sm" id="btn-tour-athens" style="border-color: #2e7d32; color: #2e7d32; font-weight: 600; text-align: left; padding: 10px 14px; border-radius: 8px;">
-            🎓 <strong>2. Athens (Clarke)</strong><br>
+            <strong>2. Athens (Clarke)</strong><br>
             <small style="font-size: 11px; text-transform: none; opacity: 0.85;">Kota Universitas (Riil 37.5% Sarjana)</small>
           </button>
 
           <button type="button" class="btn btn-outline btn-sm" id="btn-tour-dalton" style="border-color: #d97706; color: #b45309; font-weight: 600; text-align: left; padding: 10px 14px; border-radius: 8px;">
-            🏭 <strong>3. Dalton (Whitfield)</strong><br>
+            <strong>3. Dalton (Whitfield)</strong><br>
             <small style="font-size: 11px; text-transform: none; opacity: 0.85;">Sentra Pabrik Karpet (Riil 9.6% Sarjana)</small>
           </button>
 
           <button type="button" class="btn btn-outline btn-sm" id="btn-tour-clinch" style="border-color: var(--clay); color: var(--clay); font-weight: 600; text-align: left; padding: 10px 14px; border-radius: 8px;">
-            🌲 <strong>4. Clinch County</strong><br>
+            <strong>4. Clinch County</strong><br>
             <small style="font-size: 11px; text-transform: none; opacity: 0.85;">Pelosok Pedalaman (Riil 5.1% Sarjana)</small>
           </button>
         </div>
@@ -301,7 +298,7 @@
             <p class="hint" style="font-size: 12px; margin: 0;">Pusat Metropolitan &bull; 159 Kabupaten Georgia</p>
           </div>
           <span id="insp-winner-badge" class="badge badge-success" style="font-size: 11px; padding: 6px 12px; font-weight: 700;">
-            🏆 GWR 85.3% Lebih Presisi
+            GWR 85.3% Lebih Presisi
           </span>
         </div>
 
@@ -360,7 +357,7 @@
         <!-- Detail Koefisien Matematika Lokal -->
         <details style="background: #faf8f5; border: 1px solid rgba(0,0,0,0.06); border-radius: 6px; padding: 8px 12px; font-size: 12px;">
           <summary style="font-weight: 600; cursor: pointer; color: var(--indigo); font-size: 11px; text-transform: uppercase;">
-            📊 Rincian Koefisien Lokal $\beta_k(u,v)$ vs Global OLS
+            Rincian Koefisien Lokal $\beta_k(u,v)$ vs Global OLS
           </summary>
           <div class="scroll-x mt-xs">
             <table class="tbl tbl-compact" id="tbl-pred-betas" style="font-size: 12px; background: white;">
@@ -452,7 +449,6 @@
       <!-- Kolom Kiri: Di Mana GWR Menang -->
       <div class="card" style="border: 2px solid #c2e0c6; background: #fbfdfb;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 24px;">🏆</span>
           <div>
             <h3 class="h-sm" style="color: #1a5323;">Di Mana GWR Menang Telak?</h3>
             <p class="script" style="color: #2e7d32;">tiga bukti keunggulan empiris</p>
@@ -486,7 +482,6 @@
       <!-- Kolom Kanan: Kapan GWR Gagal (Batasan & Risiko) -->
       <div class="card" style="border: 2px solid #ebd4cb; background: #fffcfb;">
         <div style="display: flex; align-items: center; gap: 10px;">
-          <span style="font-size: 24px;">⚠️</span>
           <div>
             <h3 class="h-sm" style="color: #8a1f11;">Kapan GWR Gagal? (Batasan Model)</h3>
             <p class="script" style="color: #c0392b;">empat batasan teknis yang wajib diwaspadai</p>
